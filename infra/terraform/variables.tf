@@ -69,6 +69,18 @@ variable "pinecone_namespace" {
   default = "default"
 }
 
+variable "enable_hybrid_search" {
+  description = "Semantic + keyword search. Needs the sparse index (scripts/create_pinecone_index.py --sparse)."
+  type        = bool
+  default     = true
+}
+
+variable "pinecone_sparse_index" {
+  description = "Sparse Pinecone index (pinecone-sparse-english-v0) used for keyword search."
+  type        = string
+  default     = "fielddocs-sparse"
+}
+
 variable "min_relevance_score" {
   type    = number
   default = 0.35

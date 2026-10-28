@@ -22,7 +22,13 @@ from app.config import get_settings
 from app.ingestion.loaders import extension
 from app.ingestion.pipeline import delete_document_vectors, ingest_bytes
 from app.observability import configure_logging, emit_metrics, flush_traces, request_id_var
-from app.providers import BOTO_CONFIG, get_llm, get_utility_llm, get_vector_index
+from app.providers import (
+    BOTO_CONFIG,
+    get_keyword_index,
+    get_llm,
+    get_utility_llm,
+    get_vector_index,
+)
 from app.rag.retriever import Retriever
 from app.rag.service import RagService
 from app.schemas import (
@@ -47,7 +53,7 @@ def get_rag_service() -> RagService:
         settings=settings,
         llm=get_llm(),
         utility_llm=get_utility_llm(),
-        retriever=Retriever(get_vector_index(), settings),
+        retriever=Retriever(get_vector_index(), settings, get_keyword_index()),
         store=get_store(),
     )
 

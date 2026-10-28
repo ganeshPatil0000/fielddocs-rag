@@ -14,6 +14,8 @@ dev = [
     "uvicorn[standard]>=0.30",
 ]
 ui = ["streamlit>=1.38", "requests>=2.32"]
+# LLM-judged evaluation (evals/ragas_eval.py). Never installed in the Lambda image.
+eval = ["ragas==0.4.3"]
 
 [build-system]
 requires = ["setuptools>=69"]

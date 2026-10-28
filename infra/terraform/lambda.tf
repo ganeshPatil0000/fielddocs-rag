@@ -10,6 +10,8 @@ locals {
     VECTOR_STORE           = "pinecone"
     PINECONE_INDEX         = var.pinecone_index
     PINECONE_NAMESPACE     = var.pinecone_namespace
+    ENABLE_HYBRID_SEARCH   = tostring(var.enable_hybrid_search)
+    PINECONE_SPARSE_INDEX  = var.pinecone_sparse_index
     STORAGE_BACKEND        = "dynamodb"
     DYNAMODB_TABLE         = aws_dynamodb_table.app.name
     DOCUMENTS_BUCKET       = aws_s3_bucket.docs.bucket

@@ -95,6 +95,7 @@ class RagService:
             "m": self.settings.llm_model_id,
             "k": self.settings.retrieval_k,
             "t": self.settings.min_relevance_score,
+            "h": self.retriever.hybrid,
         }
         return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
@@ -112,6 +113,7 @@ class RagService:
                     page=int(meta["page"]) if meta.get("page") else None,
                     section=meta.get("section") or None,
                     score=round(chunk.score, 4),
+                    match=chunk.match,
                     snippet=text[:300],
                     cited=i in cited,
                 )

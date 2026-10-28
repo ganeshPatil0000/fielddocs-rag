@@ -24,7 +24,12 @@ class Source(BaseModel):
     source: str
     page: int | None = None
     section: str | None = None
-    score: float
+    score: float = Field(
+        description="Cosine similarity, or the fused rank score when hybrid search is on"
+    )
+    match: str = Field(
+        default="semantic", description="Which search found it: semantic, keyword or both"
+    )
     snippet: str
     cited: bool = False
 

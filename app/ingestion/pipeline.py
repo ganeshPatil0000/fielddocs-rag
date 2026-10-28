@@ -17,10 +17,20 @@ from dataclasses import dataclass
 from app.config import get_settings
 from app.ingestion.chunking import chunk_documents, chunk_ids
 from app.ingestion.loaders import IngestionError, load_document
-from app.providers import get_vector_index
+from app.providers import get_keyword_index, get_vector_index
 from app.storage import DocStatus, get_store
 
 logger = logging.getLogger(__name__)
+
+
+def _indexes() -> list:
+    """The vector index, plus the keyword index when hybrid search is on.
+
+    Both use the same deterministic chunk ids, so they stay in step: a re-run
+    overwrites both and a delete removes from both.
+    """
+    keyword = get_keyword_index()
+    return [get_vector_index()] if keyword is None else [get_vector_index(), keyword]
 
 
 @dataclass
@@ -41,7 +51,7 @@ def ingest_bytes(
 ) -> IngestResult:
     settings = get_settings()
     store = get_store()
-    index = get_vector_index()
+    indexes = _indexes()
     started = time.perf_counter()
     content_hash = hashlib.sha256(data).hexdigest()
 
@@ -77,9 +87,12 @@ def ingest_bytes(
         if not chunks:
             raise IngestionError(f"No usable text chunks in {filename}")
         ids = chunk_ids(doc_id, len(chunks))
-        index.upsert(chunks, ids)
+        for index in indexes:
+            index.upsert(chunks, ids)
         if previous_chunks > len(chunks):
-            index.delete(chunk_ids(doc_id, previous_chunks, start=len(chunks)))
+            stale = chunk_ids(doc_id, previous_chunks, start=len(chunks))
+            for index in indexes:
+                index.delete(stale)
     except IngestionError as exc:
         store.update_document(doc_id, status=DocStatus.FAILED, error=str(exc)[:500])
         logger.warning("ingest failed (permanent)", extra={"doc_id": doc_id, "error": str(exc)})
@@ -113,6 +126,8 @@ def delete_document_vectors(doc_id: str) -> int:
     doc = store.get_document(doc_id)
     count = int(doc.get("chunk_count", 0)) if doc else 0
     if count:
-        get_vector_index().delete(chunk_ids(doc_id, count))
+        ids = chunk_ids(doc_id, count)
+        for index in _indexes():
+            index.delete(ids)
     store.bump_corpus_version()
     return count

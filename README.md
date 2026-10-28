@@ -5,7 +5,7 @@ Engineers ask questions in plain English; answers come **only** from indexed
 manuals and runbooks, with numbered citations, or the assistant says it doesn't know.
 
 **Stack:** LangChain · AWS Bedrock (Amazon Nova Lite / Nova Micro, Titan Text Embeddings V2) ·
-Pinecone serverless · S3 · SQS · DynamoDB · Lambda (container image) · API Gateway HTTP API ·
+Pinecone serverless (dense + sparse, hybrid search) · S3 · SQS · DynamoDB · Lambda (container image) · API Gateway HTTP API ·
 Cognito · LangSmith · CloudWatch/X-Ray · Terraform · GitHub Actions
 
 ```
@@ -13,14 +13,15 @@ Cognito · LangSmith · CloudWatch/X-Ray · Terraform · GitHub Actions
  client ──► API Gateway (JWT, throttling) ──► Lambda: FastAPI
                                                 │  rewrite follow-up (Nova Micro)
                                                 │  cache lookup (DynamoDB)
-                                                │  embed (Titan V2) ──► Pinecone top-k
-                                                │  drop low-score chunks, cap context
+                                                │  semantic: embed (Titan V2) ──► Pinecone dense top-k
+                                                │  keyword:  Pinecone sparse top-k (exact codes)
+                                                │  fuse with RRF, drop weak chunks, cap context
                                                 │  answer with citations (Nova Lite)
                                                 └► validate citations / grounding ──► JSON + sources + trace_id
 
             ┌──────────── ingestion path ─────────────┐
  client ──► POST /v1/documents/upload-url ──► presigned POST ──► S3 raw/<doc_id>/<file>
- S3 ObjectCreated ──► SQS (retries, DLQ) ──► Lambda: parse ► clean ► chunk ► embed ► upsert ► registry
+ S3 ObjectCreated ──► SQS (retries, DLQ) ──► Lambda: parse ► clean ► chunk ► embed ► upsert (dense + sparse) ► registry
 ```
 
 ## Repository layout
@@ -28,13 +29,14 @@ Cognito · LangSmith · CloudWatch/X-Ray · Terraform · GitHub Actions
 | Path                   | What it is                                                                              |
 | ---------------------- | --------------------------------------------------------------------------------------- |
 | `app/api/`           | FastAPI app, auth (Cognito claims, admin role)                                          |
-| `app/rag/`           | prompts, retriever (threshold, dedupe, rerank, budget), service, citation validation    |
+| `app/rag/`           | prompts, retriever (hybrid fusion, threshold, dedupe, rerank, budget), service, citations |
+| `app/keyword_index.py` | keyword search for hybrid retrieval: Pinecone sparse index + in-memory BM25 twin      |
 | `app/ingestion/`     | loaders (PDF/DOCX/TXT/MD), chunking, idempotent pipeline, SQS handler, local CLI        |
 | `app/storage.py`     | DynamoDB single-table store (registry, chat history, answer cache) + in-memory twin     |
 | `app/providers.py`   | Bedrock / Pinecone factories and a small vector-index interface                         |
 | `app/fakes.py`       | offline embedder + extractive chat model for tests and laptop demos                     |
 | `tests/`             | offline pytest suite (no AWS, no Pinecone needed)                                       |
-| `evals/`             | golden question set + eval runner (retrieval hit, citation hit, refusal accuracy, cost) |
+| `evals/`             | golden question set + eval runner (retrieval hit, citation hit, refusal accuracy, cost) and RAGAS runner |
 | `infra/terraform/`   | all AWS infrastructure                                                                  |
 | `scripts/`           | deploy, secrets, users, tokens, uploads, smoke test                                     |
 | `.github/workflows/` | CI (lint, tests, eval, terraform validate, docker build) and OIDC deploy                |
@@ -64,7 +66,10 @@ crude, but every code path (chunking, retrieval, citations, cache, history, API)
 2. Create a free Pinecone account and an API key, then create the index:
    ```bash
    PINECONE_API_KEY=pcsk_... python scripts/create_pinecone_index.py --name fielddocs --dimension 1024
+   PINECONE_API_KEY=pcsk_... python scripts/create_pinecone_index.py --sparse --name fielddocs-sparse
    ```
+   The second (sparse) index powers the keyword half of hybrid search. Skip it only
+   if you set `ENABLE_HYBRID_SEARCH=false`.
 3. `cp .env.example .env`, fill in `PINECONE_API_KEY`, make sure `aws sts get-caller-identity` works.
 4. ```bash
    make ingest-local   # index sample_docs into Pinecone (namespace "local")
@@ -121,10 +126,50 @@ All settings are environment variables, see `app/config.py`. The ones you will t
 | `UTILITY_MODEL_ID`                     | `us.amazon.nova-micro-v1:0` | follow-up rewriting, grounding judge                     |
 | `MIN_RELEVANCE_SCORE`                  | `0.35`                      | below this a chunk is ignored; tune with `make eval`   |
 | `RETRIEVAL_K`                          | `5`                         | chunks sent to the model                                 |
+| `ENABLE_HYBRID_SEARCH`                 | `true`                      | semantic + keyword search, merged with RRF               |
+| `PINECONE_SPARSE_INDEX`                | `fielddocs-sparse`          | sparse index for keyword search                          |
+| `HYBRID_KEYWORD_WEIGHT`                | `1.0`                       | keyword list's weight in the fusion (0 = off)            |
+| `HYBRID_MIN_KEYWORD_COVERAGE`          | `0.5`                       | keyword-only chunks must contain this share of the question's keywords |
 | `ENABLE_GROUNDING_CHECK`               | `false`                     | second LLM call that verifies the answer                 |
 | `STRICT_GROUNDING`                     | `true`                      | uncited/ungrounded answers become "I couldn't find this" |
 | `ENABLE_RERANK` / `RERANK_MODEL_ARN` | off                           | Bedrock rerank model (extra cost per query)              |
 | `BEDROCK_GUARDRAIL_ID`                 | unset                         | attach a Bedrock Guardrail (PII, denied topics)          |
+
+## Evaluation
+
+Two layers, because they answer different questions:
+
+| Runner | How it scores | Cost | When |
+| ------ | ------------- | ---- | ---- |
+| `make eval` (`evals/run_eval.py`) | exact checks: right document retrieved and cited, key fact in the answer, refusals correct, tokens, latency | ~free | every change; offline version gates CI |
+| `make eval-ragas` (`evals/ragas_eval.py`) | [RAGAS](https://docs.ragas.io) metrics judged by a Bedrock LLM: **faithfulness** (hallucination), **answer relevancy**, **context precision**, **context recall** | a few cents | before a release, after prompt / retrieval / model changes |
+
+```bash
+pip install -e ".[eval]" -c requirements.lock    # ragas, pinned; stays out of the Lambda image
+python -m evals.ragas_eval --seed sample_docs     # judge = LLM_MODEL_ID by default
+python -m evals.ragas_eval --judge-model us.amazon.nova-pro-v1:0 --limit 5
+```
+
+Context precision and recall compare against the `reference` answer stored with each golden
+question. Results print per question and are saved to `evals/reports/ragas-<time>.json`;
+the run exits non-zero below the thresholds in `evals/ragas_eval.py`. A judge from a stronger or
+different model family than the answering model gives less biased scores.
+
+## How hybrid search works
+
+Embeddings match *meaning* but blur exact tokens such as fault codes (`LOS-NET`),
+alarm names (`MAINS FAIL`) and readings. So every question runs two searches:
+
+1. **Semantic**: Titan embedding → dense Pinecone index → chunks above `MIN_RELEVANCE_SCORE`.
+2. **Keyword**: question text → sparse Pinecone index (`pinecone-sparse-english-v0`, Pinecone embeds it).
+3. **Fusion**: Reciprocal Rank Fusion, `score = Σ weight / (60 + rank)`. It uses only the rank
+   order, so cosine and sparse scores never need normalising; chunks both searches agree on rise.
+4. **Noise gate**: a chunk found *only* by keyword search must contain at least half of the
+   question's keywords, so one shared word ("router") can't pull in an unrelated chunk.
+
+Each source in the API response has `match`: `semantic`, `keyword` or `both`. Both indexes use the
+same chunk ids, so ingestion and deletes keep them in step. If the sparse index fails, answers
+fall back to semantic-only and the `KeywordSearchErrors` alarm fires.
 
 ## Known limitations
 

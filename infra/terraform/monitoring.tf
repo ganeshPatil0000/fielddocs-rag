@@ -49,6 +49,15 @@ locals {
       period      = 300
       threshold   = 5
     }
+    keyword-search-errors = {
+      description = "Keyword search is failing; answers fall back to semantic-only retrieval"
+      namespace   = "FieldDocsRAG"
+      metric      = "KeywordSearchErrors"
+      dimensions  = tomap(local.app_dims)
+      statistic   = "Sum"
+      period      = 300
+      threshold   = 5
+    }
     llm-spend = {
       description = "Estimated Bedrock spend in the last hour is above budget"
       namespace   = "FieldDocsRAG"

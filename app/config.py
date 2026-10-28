@@ -42,6 +42,17 @@ class Settings(BaseSettings):
     pinecone_index: str = "fielddocs"
     pinecone_namespace: str = "default"
 
+    # --- hybrid search (semantic + keyword) ---------------------------------
+    # Keyword search uses a second, sparse Pinecone index (same ids/namespace).
+    enable_hybrid_search: bool = True
+    pinecone_sparse_index: str = "fielddocs-sparse"
+    # Reciprocal Rank Fusion: score = sum(weight / (rrf_k + rank)) over both lists.
+    hybrid_rrf_k: int = Field(default=60, ge=1, le=1000)
+    hybrid_keyword_weight: float = Field(default=1.0, ge=0.0, le=5.0)
+    # A chunk found ONLY by keyword search must contain at least this share of
+    # the question's keywords; stops one shared word ("router") pulling in noise.
+    hybrid_min_keyword_coverage: float = Field(default=0.5, ge=0.0, le=1.0)
+
     # --- storage (registry, chat history, cache) -----------------------------
     storage_backend: Literal["dynamodb", "memory"] = "dynamodb"
     dynamodb_table: str = "fielddocs-dev"

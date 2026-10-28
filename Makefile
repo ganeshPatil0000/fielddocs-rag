@@ -1,4 +1,4 @@
-.PHONY: install test lint run-offline run-local ingest-local eval eval-offline docker deploy smoke
+.PHONY: install test lint run-offline run-local ingest-local eval eval-offline eval-ragas docker deploy smoke
 
 install:            ## dev install (Python 3.12)
 	python -m venv .venv && . .venv/bin/activate && pip install -e ".[dev]"
@@ -26,6 +26,9 @@ eval-offline:
 
 eval:               ## golden-set eval against real Bedrock + Pinecone (reads .env)
 	python -m evals.run_eval
+
+eval-ragas:         ## RAGAS LLM-judged metrics (pip install -e ".[eval]" -c requirements.lock)
+	python -m evals.ragas_eval
 
 docker:
 	docker build --platform linux/amd64 --provenance=false -t fielddocs-rag:local .
