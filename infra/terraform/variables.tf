@@ -1,0 +1,150 @@
+variable "project" {
+  type    = string
+  default = "fielddocs"
+}
+
+variable "environment" {
+  description = "dev | staging | prod"
+  type        = string
+  default     = "dev"
+  validation {
+    condition     = contains(["dev", "staging", "prod"], var.environment)
+    error_message = "environment must be dev, staging or prod."
+  }
+}
+
+variable "region" {
+  description = "Keep this next to your Pinecone index. Pinecone's free Starter plan is AWS us-east-1 only."
+  type        = string
+  default     = "us-east-1"
+}
+
+variable "image_tag" {
+  description = "Container image tag to deploy (use the git SHA; the ECR repo is immutable)."
+  type        = string
+}
+
+variable "lambda_architecture" {
+  description = "x86_64 or arm64 (arm64 is ~20% cheaper but you must build the image for arm64)."
+  type        = string
+  default     = "x86_64"
+}
+
+# --- models -------------------------------------------------------------------
+variable "llm_model_id" {
+  type    = string
+  default = "us.amazon.nova-lite-v1:0"
+}
+
+variable "utility_model_id" {
+  type    = string
+  default = "us.amazon.nova-micro-v1:0"
+}
+
+variable "embedding_model_id" {
+  type    = string
+  default = "amazon.titan-embed-text-v2:0"
+}
+
+variable "embedding_dimensions" {
+  description = "Must match the Pinecone index dimension (Titan V2 supports 256, 512, 1024)."
+  type        = number
+  default     = 1024
+}
+
+variable "bedrock_model_patterns" {
+  description = "Foundation-model id patterns the Lambdas may invoke (least privilege)."
+  type        = list(string)
+  default     = ["amazon.nova-*", "amazon.titan-embed-text-v2*", "meta.llama*", "amazon.rerank*", "cohere.rerank*"]
+}
+
+# --- retrieval ----------------------------------------------------------------
+variable "pinecone_index" {
+  type    = string
+  default = "fielddocs"
+}
+
+variable "pinecone_namespace" {
+  type    = string
+  default = "default"
+}
+
+variable "min_relevance_score" {
+  type    = number
+  default = 0.35
+}
+
+variable "enable_grounding_check" {
+  description = "Second (cheap) LLM call that verifies each answer against its sources."
+  type        = bool
+  default     = false
+}
+
+# --- observability ------------------------------------------------------------
+variable "langsmith_tracing" {
+  type    = bool
+  default = true
+}
+
+variable "langsmith_project" {
+  type    = string
+  default = "fielddocs-rag"
+}
+
+variable "log_retention_days" {
+  type    = number
+  default = 14
+}
+
+variable "alarm_email" {
+  description = "Email for CloudWatch alarms and budget alerts (confirm the SNS subscription email)."
+  type        = string
+  default     = ""
+}
+
+variable "hourly_llm_cost_alarm_usd" {
+  description = "Alarm if estimated Bedrock spend in one hour exceeds this."
+  type        = number
+  default     = 1
+}
+
+variable "monthly_budget_usd" {
+  type    = number
+  default = 10
+}
+
+# --- api ----------------------------------------------------------------------
+variable "cors_origins" {
+  type    = list(string)
+  default = ["*"]
+}
+
+variable "api_throttle_rate" {
+  description = "Steady-state requests/second across the API."
+  type        = number
+  default     = 10
+}
+
+variable "api_throttle_burst" {
+  type    = number
+  default = 20
+}
+
+variable "api_reserved_concurrency" {
+  description = "-1 = no reservation. New AWS accounts have a 10-concurrency limit, so reserving fails there."
+  type        = number
+  default     = -1
+}
+
+# --- ci/cd --------------------------------------------------------------------
+variable "github_repository" {
+  description = "owner/repo allowed to deploy via GitHub Actions OIDC. Empty = don't create the role."
+  type        = string
+  default     = ""
+}
+
+variable "create_github_oidc_provider" {
+  description = "Set false if your account already has the GitHub OIDC provider."
+  type        = bool
+  default     = true
+}

@@ -1,0 +1,51 @@
+name: deploy
+
+# Deploys main to dev automatically; prod is a manual run guarded by a GitHub
+# Environment with required reviewers.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        type: choice
+        options: [dev, staging, prod]
+        default: dev
+
+permissions:
+  id-token: write # OIDC to AWS - no long-lived keys in GitHub
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.event.inputs.environment || 'dev' }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'dev' }}
+    env:
+      ENVIRONMENT: ${{ github.event.inputs.environment || 'dev' }}
+      AWS_REGION: us-east-1
+      IMAGE_TAG: ${{ github.sha }}
+      AUTO_APPROVE: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      # Requires the S3 backend block in infra/terraform/versions.tf to be enabled,
+      # otherwise each run starts from empty state.
+      - name: Deploy
+        run: ./scripts/deploy.sh
+
+      - name: Smoke test
+        run: ./scripts/smoke_test.sh

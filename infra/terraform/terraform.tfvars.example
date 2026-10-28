@@ -1,0 +1,19 @@
+# Copy to terraform.tfvars (git-ignored) and edit.
+project     = "fielddocs"
+environment = "dev"
+region      = "us-east-1" # keep next to the Pinecone index
+
+alarm_email        = "you@example.com" # confirm the SNS email after the first apply
+monthly_budget_usd = 10
+
+# Models (all optional - these are the defaults)
+# llm_model_id     = "us.amazon.nova-lite-v1:0"
+# utility_model_id = "us.amazon.nova-micro-v1:0"
+
+# Lock this down to your UI's origin once you have one
+cors_origins = ["*"]
+
+# Enable GitHub Actions deploys (OIDC, no stored keys)
+# github_repository = "your-github-user/fielddocs-rag"
+
+# image_tag is passed by scripts/deploy.sh (git SHA)

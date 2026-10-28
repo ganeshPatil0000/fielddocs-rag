@@ -1,0 +1,19 @@
+# Runtime dependencies (single source of truth: pyproject.toml reads this file).
+# Pin exact versions with `pip freeze` / `uv pip compile` before a real release.
+fastapi>=0.115,<1.0
+mangum>=0.19,<1.0
+pydantic>=2.7,<3
+pydantic-settings>=2.4,<3
+python-dotenv>=1.0
+langchain-core>=1.2,<2
+langchain-text-splitters>=1.0,<2
+langchain-aws>=1.0,<2
+langchain-pinecone>=0.2.13,<0.3
+# langchain-pinecone is tested against pinecone 6.x
+pinecone>=6.0.2,<7
+langsmith>=0.4,<1
+boto3>=1.40
+pypdf>=5.0
+python-docx>=1.1
+python-multipart>=0.0.9
+numpy>=1.26
