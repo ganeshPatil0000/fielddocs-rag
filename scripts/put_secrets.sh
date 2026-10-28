@@ -5,7 +5,7 @@ set -euo pipefail
 
 ENVIRONMENT="${ENVIRONMENT:-dev}"
 PROJECT="${PROJECT:-fielddocs}"
-REGION="${AWS_REGION:-us-east-1}"
+REGION="${AWS_REGION:-ap-southeast-2}"
 PREFIX="/${PROJECT}/${ENVIRONMENT}"
 
 read -r -s -p "Pinecone API key: " PINECONE && echo

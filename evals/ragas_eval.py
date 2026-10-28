@@ -19,7 +19,7 @@ real LLM), costs a few cents per run, and is not part of CI:
     pip install -e ".[eval]" -c requirements.lock
     python -m evals.ragas_eval                       # corpus already indexed
     python -m evals.ragas_eval --seed sample_docs    # ingest sample docs first
-    python -m evals.ragas_eval --judge-model us.amazon.nova-pro-v1:0 --limit 5
+    python -m evals.ragas_eval --judge-model amazon.nova-micro-v1:0 --limit 5
 
 Writes evals/reports/ragas-<timestamp>.json and exits non-zero when a metric
 falls below its threshold.

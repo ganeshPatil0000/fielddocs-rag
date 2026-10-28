@@ -21,14 +21,15 @@ class Settings(BaseSettings):
     app_name: str = "fielddocs-rag"
     app_env: Literal["local", "test", "dev", "staging", "prod"] = "local"
     log_level: str = "INFO"
-    aws_region: str = Field(default="us-east-1", validation_alias="AWS_REGION")
+    aws_region: str = Field(default="ap-southeast-2", validation_alias="AWS_REGION")
 
     # --- providers -----------------------------------------------------------
     # "bedrock" talks to AWS; "fake" is fully offline (tests, laptop demos).
     llm_provider: Literal["bedrock", "fake"] = "bedrock"
-    llm_model_id: str = "us.amazon.nova-lite-v1:0"
+    # Global inference profile: Nova 2 Lite has no in-region on-demand option in Sydney.
+    llm_model_id: str = "global.amazon.nova-2-lite-v1:0"
     # Cheaper model for helper calls (question rewriting, grounding judge).
-    utility_model_id: str = "us.amazon.nova-micro-v1:0"
+    utility_model_id: str = "amazon.nova-micro-v1:0"
     llm_temperature: float = 0.0
     llm_max_tokens: int = 700
     embedding_model_id: str = "amazon.titan-embed-text-v2:0"

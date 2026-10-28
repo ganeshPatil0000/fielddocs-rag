@@ -6,7 +6,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 ENVIRONMENT="${ENVIRONMENT:-dev}"
-REGION="${AWS_REGION:-us-east-1}"
+REGION="${AWS_REGION:-ap-southeast-2}"
 ARCH="${LAMBDA_ARCH:-x86_64}"
 PLATFORM=$([ "$ARCH" = "arm64" ] && echo linux/arm64 || echo linux/amd64)
 TAG="${IMAGE_TAG:-$(git rev-parse --short=12 HEAD 2>/dev/null || date +%Y%m%d%H%M%S)}"

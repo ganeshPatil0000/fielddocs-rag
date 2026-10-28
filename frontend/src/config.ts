@@ -4,7 +4,7 @@ const env: Partial<ImportMetaEnv> = import.meta.env ?? {};
 export const config = {
   apiUrl: (env.VITE_API_URL || "http://localhost:8000").replace(/\/+$/, ""),
   cognitoClientId: env.VITE_COGNITO_CLIENT_ID || "",
-  awsRegion: env.VITE_AWS_REGION || "us-east-1",
+  awsRegion: env.VITE_AWS_REGION || "ap-southeast-2",
 };
 
 /** Local mode: the API runs with AUTH_MODE=none, so there is no sign-in. */

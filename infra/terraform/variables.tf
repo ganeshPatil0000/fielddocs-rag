@@ -14,9 +14,9 @@ variable "environment" {
 }
 
 variable "region" {
-  description = "Keep this next to your Pinecone index. Pinecone's free Starter plan is AWS us-east-1 only."
+  description = "Your AWS project's Region. (Pinecone's free Starter plan runs in AWS us-east-1; that's fine, it's reached over HTTPS.)"
   type        = string
-  default     = "us-east-1"
+  default     = "ap-southeast-2"
 }
 
 variable "image_tag" {
@@ -33,12 +33,12 @@ variable "lambda_architecture" {
 # --- models -------------------------------------------------------------------
 variable "llm_model_id" {
   type    = string
-  default = "us.amazon.nova-lite-v1:0"
+  default = "global.amazon.nova-2-lite-v1:0"
 }
 
 variable "utility_model_id" {
   type    = string
-  default = "us.amazon.nova-micro-v1:0"
+  default = "amazon.nova-micro-v1:0"
 }
 
 variable "embedding_model_id" {
@@ -94,8 +94,9 @@ variable "enable_grounding_check" {
 
 # --- observability ------------------------------------------------------------
 variable "langsmith_tracing" {
-  type    = bool
-  default = true
+  description = "Send traces to LangSmith. Turn on after storing LANGSMITH_API_KEY with scripts/put_secrets.sh."
+  type        = bool
+  default     = false
 }
 
 variable "langsmith_project" {

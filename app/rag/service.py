@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 # USD per 1M tokens (input, output). Used for the EstimatedCostUSD metric only;
 # check https://aws.amazon.com/bedrock/pricing/ for your region.
 PRICES_PER_MTOK: dict[str, tuple[float, float]] = {
+    "nova-2-lite": (0.30, 2.50),
     "nova-micro": (0.035, 0.14),
     "nova-lite": (0.06, 0.24),
     "nova-pro": (0.80, 3.20),

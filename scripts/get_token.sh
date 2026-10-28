@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 : "${EMAIL:?set EMAIL}" "${PASSWORD:?set PASSWORD}"
-REGION="${AWS_REGION:-us-east-1}"
+REGION="${AWS_REGION:-ap-southeast-2}"
 CLIENT_ID=$(terraform -chdir=infra/terraform output -raw cognito_client_id)
 
 aws cognito-idp initiate-auth --region "$REGION" --client-id "$CLIENT_ID" \

@@ -84,8 +84,15 @@ colour. Answers are rendered from text, never inserted as HTML, so model output 
 
 ## 2. Run locally against Bedrock + Pinecone
 
-1. In the AWS console, open **Bedrock → Model access** in `us-east-1` and enable
-   *Amazon Nova Lite*, *Amazon Nova Micro* and *Titan Text Embeddings V2*.
+1. Check that your account can call the models in your AWS Region (`ap-southeast-2` here):
+   ```bash
+   python scripts/check_bedrock.py   # each model should print OK
+   ```
+   Answers use `global.amazon.nova-2-lite-v1:0` (a *global* inference profile: AWS may serve a request
+   from another Region), follow-ups use `amazon.nova-micro-v1:0` and embeddings use
+   `amazon.titan-embed-text-v2:0` (both in-Region). A brand-new account can start with
+   Bedrock quotas of 0 ("Too many tokens per day"); those are not adjustable in Service
+   Quotas, so open an AWS Support case to have them activated.
 2. Create a free Pinecone account and an API key, then create the index:
    ```bash
    PINECONE_API_KEY=pcsk_... python scripts/create_pinecone_index.py --name fielddocs --dimension 1024
@@ -102,7 +109,9 @@ colour. Answers are rendered from text, never inserted as HTML, so model output 
 
 ## 3. Deploy to AWS
 
-Prerequisites: AWS CLI v2, Terraform ≥ 1.10, Docker, an AWS account with Bedrock model access (step 2.1).
+Prerequisites: AWS CLI v2, Terraform ≥ 1.10, Docker, an AWS account with Bedrock access (step 2.1).
+Everything deploys to one Region (`ap-southeast-2`, set in `variables.tf`). The free Pinecone
+plan runs in AWS `us-east-1`, so each search crosses Regions over HTTPS (roughly 0.2 s).
 
 ```bash
 cp infra/terraform/terraform.tfvars.example infra/terraform/terraform.tfvars   # set alarm_email
@@ -145,8 +154,8 @@ All settings are environment variables, see `app/config.py`. The ones you will t
 
 | Variable                                 | Default                       | Notes                                                    |
 | ---------------------------------------- | ----------------------------- | -------------------------------------------------------- |
-| `LLM_MODEL_ID`                         | `us.amazon.nova-lite-v1:0`  | answer model                                             |
-| `UTILITY_MODEL_ID`                     | `us.amazon.nova-micro-v1:0` | follow-up rewriting, grounding judge                     |
+| `LLM_MODEL_ID`                         | `global.amazon.nova-2-lite-v1:0` | answer model ($0.30 / $2.50 per 1M tokens in / out)      |
+| `UTILITY_MODEL_ID`                     | `amazon.nova-micro-v1:0`    | follow-up rewriting, grounding judge (cheapest)          |
 | `MIN_RELEVANCE_SCORE`                  | `0.35`                      | below this a chunk is ignored; tune with `make eval`   |
 | `RETRIEVAL_K`                          | `5`                         | chunks sent to the model                                 |
 | `ENABLE_HYBRID_SEARCH`                 | `true`                      | semantic + keyword search, merged with RRF               |
@@ -170,7 +179,7 @@ Two layers, because they answer different questions:
 ```bash
 pip install -e ".[eval]" -c requirements.lock    # ragas, pinned; stays out of the Lambda image
 python -m evals.ragas_eval --seed sample_docs     # judge = LLM_MODEL_ID by default
-python -m evals.ragas_eval --judge-model us.amazon.nova-pro-v1:0 --limit 5
+python -m evals.ragas_eval --judge-model amazon.nova-micro-v1:0 --limit 5
 ```
 
 Context precision and recall compare against the `reference` answer stored with each golden

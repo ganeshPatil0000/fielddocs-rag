@@ -8,6 +8,8 @@ dynamic = ["dependencies"]
 
 [project.optional-dependencies]
 dev = [
+    # Lets boto3 use credentials from `aws login` on a laptop (Lambda uses its role instead).
+    "botocore[crt]",
     "pytest>=8",
     "httpx>=0.27",
     "ruff>=0.6",

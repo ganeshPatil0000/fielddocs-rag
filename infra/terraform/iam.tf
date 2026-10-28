@@ -12,8 +12,8 @@ data "aws_iam_policy_document" "lambda_assume" {
 
 locals {
   bedrock_resources = concat(
-    # Cross-region inference profiles (us.amazon.nova-*) route to models in several
-    # regions, so the foundation-model ARNs use a region wildcard.
+    # Global / geo inference profiles (e.g. global.amazon.nova-2-lite) route to models in
+    # other regions, so the foundation-model ARNs use a region wildcard.
     [for p in var.bedrock_model_patterns : "arn:${local.partition}:bedrock:*::foundation-model/${p}"],
     ["arn:${local.partition}:bedrock:${var.region}:${local.account_id}:inference-profile/*"],
   )

@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 : "${EMAIL:?set EMAIL}" "${PASSWORD:?set PASSWORD (12+ chars, upper, lower, number)}"
-REGION="${AWS_REGION:-us-east-1}"
+REGION="${AWS_REGION:-ap-southeast-2}"
 POOL_ID=$(terraform -chdir=infra/terraform output -raw cognito_user_pool_id)
 
 aws cognito-idp admin-create-user --region "$REGION" --user-pool-id "$POOL_ID" \
