@@ -35,6 +35,7 @@ Cognito · LangSmith · CloudWatch/X-Ray · Terraform · GitHub Actions
 | `app/storage.py`     | DynamoDB single-table store (registry, chat history, answer cache) + in-memory twin     |
 | `app/providers.py`   | Bedrock / Pinecone factories and a small vector-index interface                         |
 | `app/fakes.py`       | offline embedder + extractive chat model for tests and laptop demos                     |
+| `frontend/`          | web app: React + TypeScript + Vite (chat with cited sources, documents, Cognito sign-in) |
 | `tests/`             | offline pytest suite (no AWS, no Pinecone needed)                                       |
 | `evals/`             | golden question set + eval runner (retrieval hit, citation hit, refusal accuracy, cost) and RAGAS runner |
 | `infra/terraform/`   | all AWS infrastructure                                                                  |
@@ -58,6 +59,28 @@ curl -s localhost:8000/v1/chat -H 'content-type: application/json' \
 
 Offline mode uses a hashing embedder and an extractive fake model, so answers are
 crude, but every code path (chunking, retrieval, citations, cache, history, API) is real.
+
+### Web app
+
+Needs Node.js 20 or newer. With the API running (`make run-offline` or `make run-local`):
+
+```bash
+cd frontend
+npm install          # first time only; commit the generated package-lock.json
+npm run dev          # http://localhost:5173
+npm test             # unit + component tests
+npm run build        # production build in frontend/dist
+```
+
+With no `VITE_COGNITO_CLIENT_ID` the app runs in local mode (no sign-in), matching an API
+started with `AUTH_MODE=none`. For the deployed API, copy `frontend/.env.example` to
+`frontend/.env.local` and set `VITE_API_URL` and `VITE_COGNITO_CLIENT_ID` from the Terraform
+outputs. Users sign in with their Cognito account; admins (Cognito group `admin`) can upload and
+delete documents.
+
+Design notes: sources are colour-coded with the standard 12-fibre colour sequence (source 1 blue,
+2 orange, 3 green...), so a citation in the answer and its passage in the sources panel share a
+colour. Answers are rendered from text, never inserted as HTML, so model output can't inject markup.
 
 ## 2. Run locally against Bedrock + Pinecone
 
