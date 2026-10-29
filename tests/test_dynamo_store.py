@@ -76,3 +76,28 @@ def test_get_document_converts_decimals():
     with stub:
         doc = store.get_document("d1")
     assert doc["chunk_count"] == 12 and isinstance(doc["chunk_count"], int)
+
+
+def test_get_documents_uses_one_batch_read_and_retries_unprocessed_keys():
+    store, stub = _store()
+    key = {"pk": "DOCS", "sk": "DOC#a"}
+    key_b = {"pk": "DOCS", "sk": "DOC#b"}
+    stub.add_response(
+        "batch_get_item",
+        {
+            "Responses": {
+                "t": [{"pk": {"S": "DOCS"}, "sk": {"S": "DOC#a"}, "version": {"N": "2"}}]
+            },
+            "UnprocessedKeys": {"t": {"Keys": [{"pk": {"S": "DOCS"}, "sk": {"S": "DOC#b"}}]}},
+        },
+        {"RequestItems": {"t": {"Keys": [key, key_b]}}},
+    )
+    stub.add_response(
+        "batch_get_item",
+        {"Responses": {"t": [{"pk": {"S": "DOCS"}, "sk": {"S": "DOC#b"}, "status": {"S": "X"}}]}},
+        {"RequestItems": {"t": {"Keys": [key_b]}}},
+    )
+    with stub:
+        docs = store.get_documents(["b", "a", "a"])
+    stub.assert_no_pending_responses()
+    assert docs["a"]["version"] == 2 and docs["b"]["status"] == "X"

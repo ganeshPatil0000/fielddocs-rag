@@ -182,7 +182,8 @@ gives the CloudWatch dashboard (questions, refusals, tokens, estimated cost, lat
 | POST   | `/v1/feedback`             | user   | thumbs up/down on a `trace_id` (sent to LangSmith)                                              |
 | GET    | `/v1/documents`            | user   | list documents and ingestion status                                                               |
 | GET    | `/v1/documents/{id}`       | user   | one document                                                                                      |
-| POST   | `/v1/documents/upload-url` | admin  | presigned S3 POST (size-limited)                                                                  |
+| POST   | `/v1/documents/upload-url` | admin  | presigned S3 POST (size-limited); 409 `duplicate` / `same_name` with the existing `doc_id`        |
+| POST   | `/v1/documents/{id}/replace-url` | admin | presigned S3 POST for a new version of an existing document (409 while one is indexing)    |
 | DELETE | `/v1/documents/{id}`       | admin  | remove vectors, file and registry entry                                                           |
 
 ## Configuration
@@ -241,6 +242,38 @@ alarm names (`MAINS FAIL`) and readings. So every question runs two searches:
 Each source in the API response has `match`: `semantic`, `keyword` or `both`. Both indexes use the
 same chunk ids, so ingestion and deletes keep them in step. If the sparse index fails, answers
 fall back to semantic-only and the `KeywordSearchErrors` alarm fires.
+
+## How document updates work
+
+Manuals change. When an admin clicks **Replace**, the new file gets the same `doc_id` and the
+next version number, and answers move from the old version to the new one without ever mixing
+the two:
+
+1. The new version's chunks are written under new ids (`<doc_id>#v2#<n>`; version 1 keeps
+   `<doc_id>#<n>`, so older documents need no migration). The old version keeps answering.
+2. When every chunk is stored, one registry write moves `version` forward and the answer cache
+   is invalidated (the cache key includes a corpus version).
+3. The old chunks and the old file in S3 are deleted.
+
+At query time the retriever reads the registry (one DynamoDB `BatchGetItem`) and drops any
+chunk whose version is not the current one, before ranking. So a crash between steps, a
+half-written new version, or a cleanup that failed can never put old and new text in one
+answer. If the new file can't be used (for example a scanned PDF with no text), it is rejected,
+the old version keeps answering, and the Documents page shows why.
+
+### Duplicates
+
+Two live copies of one manual drift apart and give conflicting answers, so uploads are checked:
+
+* **Same content.** The browser computes the file's SHA-256 and the API refuses an exact
+  duplicate before anything is uploaded (409 `duplicate`). Ingestion hashes the real bytes again
+  and claims the hash with a DynamoDB conditional write (`HASH / SHA#<sha256>`), so even two
+  uploads at the same moment can't both be indexed; the loser is marked `DUPLICATE`. File times
+  (ctime/mtime) are not used: browsers don't send ctime, and mtime changes on every copy.
+* **Same name.** A new upload named like an existing document is almost always its new
+  version, so the API answers 409 `same_name` and the web app offers **Replace** instead.
+* **Conflicting sources.** If two different documents still disagree (say 4 hours vs 6 hours),
+  the prompt tells the model to show both values with their citations, never to blend them.
 
 ## Known limitations
 

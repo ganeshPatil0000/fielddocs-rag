@@ -10,11 +10,16 @@ from app.storage import get_store
 class FakeS3:
     def __init__(self, objects: dict[str, bytes]) -> None:
         self.objects = objects
+        self.deleted: list[str] = []
 
     def get_object(self, Bucket: str, Key: str):  # noqa: N803 - boto3 naming
         if Key not in self.objects:
             raise RuntimeError("NoSuchKey")
         return {"Body": io.BytesIO(self.objects[Key]), "Metadata": {"uploaded-by": "admin-1"}}
+
+    def delete_object(self, Bucket: str, Key: str):  # noqa: N803
+        self.deleted.append(Key)
+        self.objects.pop(Key, None)
 
 
 def _sqs_event(*keys: str, message_id: str = "m1") -> dict:
@@ -58,3 +63,29 @@ def test_failed_message_is_returned_for_retry(s3):
 def test_s3_test_event_is_ignored(s3):
     event = {"Records": [{"messageId": "t", "body": json.dumps({"Event": "s3:TestEvent"})}]}
     assert ingest_handler.handler(event, None) == {"batchItemFailures": []}
+
+
+def test_replace_deletes_the_old_file_after_switching(s3):
+    s3.objects["raw/abc123/fan.md"] = b"# Fan\n\nThe fan starts at 35 degrees Celsius."
+    s3.objects["raw/abc123/fan-v2.md"] = b"# Fan\n\nThe fan starts at 40 degrees Celsius."
+    assert ingest_handler.handler(_sqs_event("raw/abc123/fan.md"), None)["batchItemFailures"] == []
+
+    result = ingest_handler.handler(_sqs_event("raw/abc123/fan-v2.md", message_id="m2"), None)
+
+    assert result == {"batchItemFailures": []}
+    doc = get_store().get_document("abc123")
+    assert doc["version"] == 2 and doc["s3_key"] == "raw/abc123/fan-v2.md"
+    assert s3.deleted == ["raw/abc123/fan.md"]
+
+
+def test_rejected_replacement_file_is_deleted_and_old_version_kept(s3):
+    s3.objects["raw/abc123/fan.md"] = b"# Fan\n\nThe fan starts at 35 degrees Celsius."
+    s3.objects["raw/abc123/scan.exe"] = b"MZ\x90\x00"
+    ingest_handler.handler(_sqs_event("raw/abc123/fan.md"), None)
+
+    result = ingest_handler.handler(_sqs_event("raw/abc123/scan.exe", message_id="m3"), None)
+
+    assert result == {"batchItemFailures": []}  # permanent problem: no SQS retry
+    doc = get_store().get_document("abc123")
+    assert doc["version"] == 1 and doc["update_status"] == "FAILED"
+    assert s3.deleted == ["raw/abc123/scan.exe"] and "raw/abc123/fan.md" in s3.objects

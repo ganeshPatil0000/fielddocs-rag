@@ -31,6 +31,7 @@ function fakeApi(chat: Api["chat"]): Api {
     listDocuments: vi.fn(async () => []),
     deleteDocument: vi.fn(async () => undefined),
     uploadDocument: vi.fn(async () => "d1"),
+    replaceDocument: vi.fn(async () => "d1"),
   };
 }
 

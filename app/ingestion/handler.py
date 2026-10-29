@@ -77,10 +77,19 @@ def _process_s3_record(record: dict[str, Any]) -> None:
     data = obj["Body"].read()
     uploaded_by = obj.get("Metadata", {}).get("uploaded-by")
     result = ingest_bytes(data, filename, doc_id, s3_key=key, uploaded_by=uploaded_by)
+    for stale_key in result.obsolete_s3_keys:
+        # Old file after a replace, or a rejected new file. Best effort: a leftover
+        # object costs a little storage but is never used for answers.
+        try:
+            _s3_client().delete_object(Bucket=bucket, Key=stale_key)
+        except Exception:  # noqa: BLE001
+            logger.warning("old file cleanup failed", extra={"key": stale_key}, exc_info=True)
     emit_metrics(
         settings.metrics_namespace,
         {
             "DocumentsIngested": 1 if result.status == "INDEXED" and not result.skipped else 0,
+            "DocumentsReplaced": 1 if result.replaced else 0,
+            "DocumentsDuplicate": 1 if result.duplicate_of else 0,
             "DocumentsFailed": 1 if result.status == "FAILED" else 0,
             "ChunksIndexed": result.chunks if not result.skipped else 0,
         },

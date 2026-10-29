@@ -40,7 +40,7 @@ data "aws_iam_policy_document" "common" {
     sid = "AppTable"
     actions = [
       "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem",
-      "dynamodb:DeleteItem", "dynamodb:Query",
+      "dynamodb:DeleteItem", "dynamodb:Query", "dynamodb:BatchGetItem",
     ]
     resources = [aws_dynamodb_table.app.arn]
   }
@@ -78,8 +78,9 @@ data "aws_iam_policy_document" "ingest" {
   source_policy_documents = [data.aws_iam_policy_document.common.json]
 
   statement {
-    sid       = "ReadRawDocuments"
-    actions   = ["s3:GetObject"]
+    sid = "RawDocuments"
+    # DeleteObject removes the old file after a replace, or a rejected new file.
+    actions   = ["s3:GetObject", "s3:DeleteObject"]
     resources = ["${aws_s3_bucket.docs.arn}/raw/*"]
   }
 

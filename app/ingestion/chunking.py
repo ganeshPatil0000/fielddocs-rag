@@ -8,7 +8,10 @@ Chunking choices (and why):
   every chunk ("Manual > Section > Subsection"). A chunk that says "torque to
   12 Nm" is useless without knowing *which* component - the header supplies it
   and measurably improves retrieval for short chunks.
-* Deterministic chunk ids (``<doc_id>#<n>``) make re-ingestion idempotent.
+* Deterministic chunk ids make re-ingestion idempotent. Each version of a
+  document has its own ids (``<doc_id>#<n>`` for version 1, ``<doc_id>#v2#<n>``
+  after the first replace), so a new version is written next to the old one
+  and the switch happens only when it is complete.
 """
 
 from __future__ import annotations
@@ -39,6 +42,7 @@ def chunk_documents(
     doc_id: str,
     chunk_size: int = 1000,
     chunk_overlap: int = 150,
+    version: int = 1,
 ) -> list[Document]:
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size,
@@ -70,6 +74,7 @@ def chunk_documents(
                 meta = {
                     **doc.metadata,
                     "doc_id": doc_id,
+                    "doc_version": version,
                     "section": heading_path or None,
                 }
                 chunks.append(Document(page_content=f"[{header}]\n{piece.strip()}", metadata=meta))
@@ -80,5 +85,19 @@ def chunk_documents(
     return chunks
 
 
-def chunk_ids(doc_id: str, count: int, start: int = 0) -> list[str]:
-    return [f"{doc_id}#{i}" for i in range(start, count)]
+def chunk_ids(doc_id: str, count: int, start: int = 0, version: int = 1) -> list[str]:
+    # Version 1 keeps the original "<doc_id>#<n>" ids, so documents indexed before
+    # versioning existed need no migration.
+    prefix = doc_id if version <= 1 else f"{doc_id}#v{version}"
+    return [f"{prefix}#{i}" for i in range(start, count)]
+
+
+def chunk_version(metadata: dict) -> int:
+    """Document version a stored chunk belongs to (chunks from before versioning are 1).
+
+    Pinecone returns numbers as floats, so 2.0 is read back as 2.
+    """
+    try:
+        return int(float(metadata.get("doc_version", 1)))
+    except (TypeError, ValueError):
+        return 1

@@ -6,10 +6,14 @@ One DynamoDB table (single-table design, on-demand billing) holds everything:
 pk                     sk                     purpose
 =====================  =====================  ==================================
 DOCS                   DOC#<doc_id>           document registry + ingest status
+HASH                   SHA#<sha256>           which document owns this exact content
 META                   CORPUS                 corpus version (bumped per ingest)
 CHAT#<user>#<session>  TURN#<epoch_ms>        conversation turns (TTL)
 CACHE#<sha256>         ANSWER                 cached answers (TTL)
 =====================  =====================  ==================================
+
+The HASH items act as a unique constraint on file content: a conditional write
+lets only one document claim a hash, even when two uploads race.
 
 ``expires_at`` is the table's TTL attribute. DynamoDB deletes expired items
 lazily (can take hours), so reads also filter on it.
@@ -32,6 +36,19 @@ class DocStatus:
     PROCESSING = "PROCESSING"
     INDEXED = "INDEXED"
     FAILED = "FAILED"
+    # Same content as another document; not indexed, never used for answers.
+    DUPLICATE = "DUPLICATE"
+
+
+def live_version(doc: dict[str, Any] | None) -> int | None:
+    """The document version answers may use, or None while nothing is ready.
+
+    A document being replaced stays INDEXED (its current version keeps serving)
+    until the new version is complete; ``version`` then moves forward in one write.
+    """
+    if not doc or doc.get("status") != DocStatus.INDEXED:
+        return None
+    return int(doc.get("version") or 1)
 
 
 def _now() -> int:
@@ -51,10 +68,15 @@ def _plain(value: Any) -> Any:
 
 class Store(Protocol):
     def get_document(self, doc_id: str) -> dict[str, Any] | None: ...
+    def get_documents(self, doc_ids: list[str]) -> dict[str, dict[str, Any]]: ...
     def put_document(self, doc: dict[str, Any]) -> None: ...
     def update_document(self, doc_id: str, **fields: Any) -> None: ...
     def list_documents(self) -> list[dict[str, Any]]: ...
     def delete_document(self, doc_id: str) -> None: ...
+    # -- content hashes (one owner per exact file content) ---------------------
+    def hash_owner(self, content_hash: str) -> str | None: ...
+    def claim_hash(self, content_hash: str, doc_id: str, replace: str | None = None) -> str: ...
+    def release_hash(self, content_hash: str, doc_id: str) -> None: ...
     def get_corpus_version(self) -> int: ...
     def bump_corpus_version(self) -> int: ...
     def append_turn(self, user: str, session: str, question: str, answer: str) -> None: ...
@@ -78,6 +100,26 @@ class DynamoStore:
     def get_document(self, doc_id: str) -> dict[str, Any] | None:
         item = self.table.get_item(Key={"pk": "DOCS", "sk": f"DOC#{doc_id}"}).get("Item")
         return _plain(item) if item else None
+
+    def get_documents(self, doc_ids: list[str]) -> dict[str, dict[str, Any]]:
+        """Several registry entries in one round trip (BatchGetItem, 100 keys a call)."""
+        client = self.table.meta.client
+        wanted = sorted(set(doc_ids))
+        found: dict[str, dict[str, Any]] = {}
+        for start in range(0, len(wanted), 100):
+            request: dict[str, Any] = {
+                self.table.name: {
+                    "Keys": [{"pk": "DOCS", "sk": f"DOC#{d}"} for d in wanted[start : start + 100]]
+                }
+            }
+            for _ in range(5):  # DynamoDB may return some keys as "unprocessed"
+                resp = client.batch_get_item(RequestItems=request)
+                for item in resp.get("Responses", {}).get(self.table.name, []):
+                    found[str(item["sk"]).removeprefix("DOC#")] = _plain(item)
+                request = resp.get("UnprocessedKeys") or {}
+                if not request:
+                    break
+        return found
 
     def put_document(self, doc: dict[str, Any]) -> None:
         now = _now()
@@ -116,6 +158,39 @@ class DynamoStore:
 
     def delete_document(self, doc_id: str) -> None:
         self.table.delete_item(Key={"pk": "DOCS", "sk": f"DOC#{doc_id}"})
+
+    # -- content hashes -----------------------------------------------------
+    def hash_owner(self, content_hash: str) -> str | None:
+        item = self.table.get_item(Key={"pk": "HASH", "sk": f"SHA#{content_hash}"}).get("Item")
+        return str(item["doc_id"]) if item else None
+
+    def claim_hash(self, content_hash: str, doc_id: str, replace: str | None = None) -> str:
+        """Make ``doc_id`` the owner unless another document owns the hash; returns the
+        owner. ``replace`` takes the hash over from that (stale) owner."""
+        condition = "attribute_not_exists(pk) OR doc_id = :me"
+        values: dict[str, Any] = {":me": doc_id}
+        if replace:
+            condition += " OR doc_id = :old"
+            values[":old"] = replace
+        try:
+            self.table.put_item(
+                Item={"pk": "HASH", "sk": f"SHA#{content_hash}", "doc_id": doc_id, "at": _now()},
+                ConditionExpression=condition,
+                ExpressionAttributeValues=values,
+            )
+            return doc_id
+        except self.table.meta.client.exceptions.ConditionalCheckFailedException:
+            return self.hash_owner(content_hash) or doc_id
+
+    def release_hash(self, content_hash: str, doc_id: str) -> None:
+        try:
+            self.table.delete_item(
+                Key={"pk": "HASH", "sk": f"SHA#{content_hash}"},
+                ConditionExpression="doc_id = :me",
+                ExpressionAttributeValues={":me": doc_id},
+            )
+        except self.table.meta.client.exceptions.ConditionalCheckFailedException:
+            pass  # owned by another document (or already gone): leave it
 
     # -- corpus version (invalidates the answer cache) ----------------------
     def get_corpus_version(self) -> int:
@@ -186,6 +261,7 @@ class MemoryStore:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self.docs: dict[str, dict[str, Any]] = {}
+        self.hashes: dict[str, str] = {}
         self.version = 0
         self.chats: dict[str, list[tuple[str, str]]] = {}
         self.cache: dict[str, tuple[float, dict[str, Any]]] = {}
@@ -193,6 +269,9 @@ class MemoryStore:
     def get_document(self, doc_id: str) -> dict[str, Any] | None:
         doc = self.docs.get(doc_id)
         return dict(doc) if doc else None
+
+    def get_documents(self, doc_ids: list[str]) -> dict[str, dict[str, Any]]:
+        return {d: dict(self.docs[d]) for d in set(doc_ids) if d in self.docs}
 
     def put_document(self, doc: dict[str, Any]) -> None:
         now = _now()
@@ -209,6 +288,22 @@ class MemoryStore:
     def delete_document(self, doc_id: str) -> None:
         with self._lock:
             self.docs.pop(doc_id, None)
+
+    def hash_owner(self, content_hash: str) -> str | None:
+        return self.hashes.get(content_hash)
+
+    def claim_hash(self, content_hash: str, doc_id: str, replace: str | None = None) -> str:
+        with self._lock:
+            owner = self.hashes.get(content_hash)
+            if owner in (None, doc_id) or (replace and owner == replace):
+                self.hashes[content_hash] = doc_id
+                return doc_id
+            return owner
+
+    def release_hash(self, content_hash: str, doc_id: str) -> None:
+        with self._lock:
+            if self.hashes.get(content_hash) == doc_id:
+                del self.hashes[content_hash]
 
     def get_corpus_version(self) -> int:
         return self.version

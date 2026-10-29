@@ -9,6 +9,11 @@ Hybrid search runs two searches and merges them with Reciprocal Rank Fusion:
 RRF only looks at each list's rank order, so the two very different score
 scales (cosine similarity vs sparse/BM25 weights) never need normalising.
 If the keyword index is down, retrieval falls back to semantic-only results.
+
+Freshness: the document registry is the source of truth for which version of
+each document may be used. Search results from any other version (an old
+version still being cleaned up, a half-written new one) or from a document that
+is not ready are dropped before ranking, so answers never mix versions.
 """
 
 from __future__ import annotations
@@ -19,9 +24,11 @@ from dataclasses import dataclass
 from langchain_core.documents import Document
 
 from app.config import Settings
+from app.ingestion.chunking import chunk_version
 from app.keyword_index import KeywordIndex, query_coverage
 from app.observability import emit_metrics
 from app.providers import BOTO_CONFIG, VectorIndex
+from app.storage import Store, live_version
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +44,11 @@ class RetrievedChunk:
     @property
     def doc_id(self) -> str:
         return str(self.doc.metadata.get("doc_id", ""))
+
+
+def version_key(doc: Document) -> str:
+    """``doc_id@version`` of a stored chunk."""
+    return f"{doc.metadata.get('doc_id', '')}@{chunk_version(doc.metadata)}"
 
 
 def chunk_key(doc: Document) -> str:
@@ -86,10 +98,13 @@ class Retriever:
         index: VectorIndex,
         settings: Settings,
         keyword_index: KeywordIndex | None = None,
+        registry: Store | None = None,
     ) -> None:
         self.index = index
         self.settings = settings
         self.keyword_index = keyword_index
+        # Document registry used to drop chunks of non-current versions (None = off).
+        self.registry = registry
         self._reranker = None
 
     @property
@@ -114,16 +129,40 @@ class Retriever:
             for r in ranked
         ]
 
-    def _semantic(self, query: str, k: int, filters: dict | None) -> list[RetrievedChunk]:
+    def _semantic(self, hits: list[tuple[Document, float]]) -> list[RetrievedChunk]:
         seen: set[str] = set()
         chunks: list[RetrievedChunk] = []
-        for doc, score in self.index.search(query, k=k, filters=filters):
+        for doc, score in hits:
             key = chunk_key(doc)
             if score < self.settings.min_relevance_score or key in seen:
                 continue
             seen.add(key)
             chunks.append(RetrievedChunk(doc, float(score)))
         return chunks
+
+    def _usable_versions(self, docs: list[Document]) -> set[str] | None:
+        """``doc_id@version`` keys that may be used, or None when every chunk may be.
+
+        One batched registry read per question (a few milliseconds on DynamoDB).
+        """
+        if self.registry is None or not docs:
+            return None
+        found = {version_key(d) for d in docs}
+        registry = self.registry.get_documents(sorted({k.rsplit("@", 1)[0] for k in found}))
+        # The in-memory registry lives in one process (a CLI ingest is not visible to
+        # the API), so there unknown documents are allowed. DynamoDB is shared, so an
+        # unknown document there is one that was deleted.
+        allow_unknown = self.settings.storage_backend == "memory"
+        usable = set()
+        for key in found:
+            doc_id, version = key.rsplit("@", 1)
+            entry = registry.get(doc_id)
+            if entry is None:
+                if allow_unknown:
+                    usable.add(key)
+            elif live_version(entry) == int(version):
+                usable.add(key)
+        return usable
 
     def _keyword(self, query: str, k: int, filters: dict | None) -> list[Document]:
         if self.keyword_index is None:
@@ -146,10 +185,20 @@ class Retriever:
         k = s.retrieval_fetch_k if (s.enable_rerank or self.hybrid) else s.retrieval_k
         filters = {"doc_id": doc_ids} if doc_ids else None
 
-        semantic = self._semantic(query, k, filters)
-        keyword: list[Document] = []
+        semantic_hits = self.index.search(query, k=k, filters=filters)
+        keyword = self._keyword(query, k, filters) if self.hybrid else []
+
+        # Drop chunks of document versions that must not be used, before ranking.
+        usable = self._usable_versions([d for d, _ in semantic_hits] + keyword)
+        stale = 0
+        if usable is not None:
+            before = len(semantic_hits) + len(keyword)
+            semantic_hits = [(d, score) for d, score in semantic_hits if version_key(d) in usable]
+            keyword = [d for d in keyword if version_key(d) in usable]
+            stale = before - len(semantic_hits) - len(keyword)
+
+        semantic = self._semantic(semantic_hits)
         if self.hybrid:
-            keyword = self._keyword(query, k, filters)
             fused = reciprocal_rank_fusion(
                 [
                     ("semantic", [c.doc for c in semantic], 1.0),
@@ -185,6 +234,7 @@ class Retriever:
                 "mode": "hybrid" if self.hybrid else "semantic",
                 "semantic_hits": len(semantic),
                 "keyword_hits": len(keyword),
+                "stale_dropped": stale,
                 "kept": len(kept),
                 "matches": [c.match for c in kept],
                 "top_score": round(kept[0].score, 4) if kept else None,

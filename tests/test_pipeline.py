@@ -28,11 +28,12 @@ def test_reingesting_identical_content_is_skipped():
     assert get_store().get_corpus_version() == 1  # no cache invalidation for a no-op
 
 
-def test_shorter_new_version_removes_stale_chunks():
+def test_shorter_new_version_removes_all_old_chunks():
     first = ingest_bytes(LONG_DOC.encode(), "battery.md", "doc-a")
     second = ingest_bytes(SHORT_DOC.encode(), "battery.md", "doc-a")
     assert second.chunks < first.chunks
-    assert _vector_ids() == {f"doc-a#{i}" for i in range(second.chunks)}
+    # The new version has its own ids; every chunk of version 1 is gone.
+    assert _vector_ids() == {f"doc-a#v2#{i}" for i in range(second.chunks)}
 
 
 def test_bad_file_is_marked_failed_without_raising():

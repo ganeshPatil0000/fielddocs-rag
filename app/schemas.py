@@ -56,6 +56,12 @@ class ChatResponse(BaseModel):
 class UploadUrlRequest(BaseModel):
     filename: str = Field(min_length=1, max_length=200)
     content_type: str = Field(default="application/octet-stream", max_length=100)
+    sha256: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+        description="SHA-256 of the file, so an exact duplicate is refused before upload "
+        "(ingestion checks the real bytes again)",
+    )
 
 
 class UploadUrlResponse(BaseModel):
@@ -76,6 +82,14 @@ class DocumentOut(BaseModel):
     error: str | None = None
     created_at: int | None = None
     updated_at: int | None = None
+    # Version answers currently use; goes up by one each time the file is replaced.
+    version: int = 1
+    # Progress of a replacement: PENDING / PROCESSING / FAILED, or empty when none.
+    update_status: str | None = None
+    update_error: str | None = None
+    pending_filename: str | None = None
+    # For DUPLICATE documents: the document that already has this content.
+    duplicate_of: str | None = None
 
 
 class FeedbackRequest(BaseModel):

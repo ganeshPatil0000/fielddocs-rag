@@ -33,7 +33,7 @@ export interface ChatResponse {
   latency_ms: number;
 }
 
-export type DocStatus = "PENDING" | "PROCESSING" | "INDEXED" | "FAILED";
+export type DocStatus = "PENDING" | "PROCESSING" | "INDEXED" | "FAILED" | "DUPLICATE";
 
 export interface DocumentOut {
   doc_id: string;
@@ -45,6 +45,14 @@ export interface DocumentOut {
   error: string | null;
   created_at: number | null;
   updated_at: number | null;
+  /** Version answers use now; goes up by one with each replace. */
+  version: number;
+  /** Progress of a replacement file; empty or null when there is none. */
+  update_status: "PENDING" | "PROCESSING" | "FAILED" | "" | null;
+  update_error: string | null;
+  pending_filename: string | null;
+  /** For DUPLICATE documents: the document that already has this content. */
+  duplicate_of?: string | null;
 }
 
 export interface UploadUrlResponse {

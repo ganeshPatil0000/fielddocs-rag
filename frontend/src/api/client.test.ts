@@ -87,6 +87,87 @@ describe("createApi", () => {
   });
 });
 
+describe("replaceDocument", () => {
+  it("asks for an upload link for the same document, then sends the file to S3", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        json(200, { doc_id: "d7", key: "raw/d7/guide-v2.md", url: "https://bucket.s3.amazonaws.com/", fields: { key: "raw/d7/guide-v2.md" }, expires_in: 900 }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const hash = async () => "ab".repeat(32);
+    const docId = await createApi(async () => "t", undefined, hash).replaceDocument(
+      "d7",
+      new File(["# v2"], "guide-v2.md"),
+    );
+
+    expect(docId).toBe("d7");
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`${config.apiUrl}/v1/documents/d7/replace-url`);
+    expect(JSON.parse(String(init.body))).toEqual({
+      filename: "guide-v2.md",
+      content_type: "application/octet-stream",
+      sha256: "ab".repeat(32),
+    });
+    expect((fetchMock.mock.calls[1] as [string, RequestInit])[0]).toBe("https://bucket.s3.amazonaws.com/");
+  });
+
+  it("replaces through the local endpoint when the API has no S3 bucket", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(json(501, { detail: "No documents bucket configured" }))
+      .mockResolvedValueOnce(json(200, { doc_id: "d7", status: "INDEXED", version: 2 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApi(async () => null).replaceDocument("d7", new File(["# v2"], "guide.md"));
+
+    const [url, init] = fetchMock.mock.calls[1] as [string, RequestInit];
+    expect(url).toBe(`${config.apiUrl}/v1/documents/d7/replace`);
+    expect(init.body).toBeInstanceOf(FormData);
+  });
+
+  it("shows the API's reason when a replace is refused", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => json(409, { detail: "A new version is already being indexed. Wait a minute." })),
+    );
+    const error = await createApi(async () => "t")
+      .replaceDocument("d7", new File(["x"], "a.md"))
+      .catch((e: unknown) => e);
+    expect((error as ApiError).message).toBe("A new version is already being indexed. Wait a minute.");
+  });
+});
+
+describe("upload conflicts", () => {
+  it("passes the conflict code and existing document id to the page", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        json(409, { detail: "A document named guide.md already exists.", code: "same_name", doc_id: "d1" }),
+      ),
+    );
+    const error = (await createApi(async () => "t", undefined, async () => undefined)
+      .uploadDocument(new File(["x"], "guide.md"))
+      .catch((e: unknown) => e)) as ApiError;
+    expect(error.status).toBe(409);
+    expect(error.code).toBe("same_name");
+    expect(error.docId).toBe("d1");
+    expect(error.message).toBe("A document named guide.md already exists.");
+  });
+
+  it("leaves the hash out when the browser can't compute it", async () => {
+    const fetchMock = vi.fn(async () => json(409, { detail: "x", code: "duplicate", doc_id: "d1" }));
+    vi.stubGlobal("fetch", fetchMock);
+    await createApi(async () => "t", undefined, async () => undefined)
+      .uploadDocument(new File(["x"], "a.md"))
+      .catch(() => undefined);
+    const init = (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1];
+    expect(JSON.parse(String(init.body))).toEqual({ filename: "a.md", content_type: "application/octet-stream" });
+  });
+});
+
 describe("describeError", () => {
   it("explains what to do", () => {
     expect(describeError(0)).toMatch(/check your connection/i);

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Build the image, push it to ECR, and apply Terraform.
-#   ./scripts/deploy.sh            (uses the current git SHA as the image tag)
+#   ./scripts/deploy.sh            (uses the current git SHA as the image tag; with
+#                                   uncommitted changes it adds "-dirty-<time>")
 #   ENVIRONMENT=prod ./scripts/deploy.sh
 set -euo pipefail
 
@@ -9,7 +10,21 @@ ENVIRONMENT="${ENVIRONMENT:-dev}"
 REGION="${AWS_REGION:-ap-southeast-2}"
 ARCH="${LAMBDA_ARCH:-x86_64}"
 PLATFORM=$([ "$ARCH" = "arm64" ] && echo linux/arm64 || echo linux/amd64)
-TAG="${IMAGE_TAG:-$(git rev-parse --short=12 HEAD 2>/dev/null || date +%Y%m%d%H%M%S)}"
+# The tag must change whenever the code changes: ECR tags are immutable and an
+# existing tag is not rebuilt. A clean checkout uses the commit SHA (same code ->
+# same image); uncommitted changes get a unique "-dirty-<time>" suffix, because the
+# commit SHA alone would point at an image built from older code.
+if [ -n "${IMAGE_TAG:-}" ]; then
+  TAG="$IMAGE_TAG"
+elif SHA=$(git rev-parse --short=12 HEAD 2>/dev/null); then
+  TAG="$SHA"
+  if [ -n "$(git status --porcelain --untracked-files=normal -- . ':!frontend' ':!infra' 2>/dev/null)" ]; then
+    TAG="${SHA}-dirty-$(date -u +%Y%m%d%H%M%S)"
+    echo "!! uncommitted changes: deploying them as ${TAG} (commit first for a traceable tag)"
+  fi
+else
+  TAG=$(date -u +%Y%m%d%H%M%S)
+fi
 TF_DIR=infra/terraform
 TF_VARS=(-var "environment=${ENVIRONMENT}" -var "region=${REGION}" -var "image_tag=${TAG}" -var "lambda_architecture=${ARCH}")
 

@@ -759,6 +759,8 @@ button.tag:hover {
 }
 
 .docs-table-wrap {
+  /* Contain the visually hidden button labels, so they can't widen the page. */
+  position: relative;
   overflow-x: auto;
   border-radius: var(--radius-m);
 }
@@ -792,6 +794,15 @@ button.tag:hover {
 }
 .docs-table .actions {
   text-align: right;
+  white-space: nowrap;
+}
+.docs-table .actions .btn-link + .btn-link {
+  margin-left: 14px;
+}
+.btn-link:disabled {
+  color: var(--ink-2);
+  text-decoration: none;
+  cursor: not-allowed;
 }
 .doc-name {
   display: block;
@@ -804,11 +815,28 @@ button.tag:hover {
   color: var(--ink-2);
   overflow-wrap: anywhere;
 }
+.doc-version {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 0 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-s);
+  font-weight: 600;
+  color: var(--ink);
+}
+.doc-update {
+  display: block;
+  margin-top: 6px;
+  color: var(--action);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere; /* long file names must not widen the table */
+}
 .doc-error {
   display: block;
   margin-top: 6px;
   color: var(--bad);
   font-size: var(--text-xs);
+  overflow-wrap: anywhere;
 }
 
 .status {
@@ -834,6 +862,12 @@ button.tag:hover {
 .status-failed::before {
   background: var(--bad);
 }
+.status-duplicate {
+  color: var(--warn);
+}
+.status-duplicate::before {
+  background: var(--warn);
+}
 .status-processing::before {
   background: var(--action);
   animation: pon 1.1s steps(1, end) infinite;
@@ -852,6 +886,17 @@ button.tag:hover {
   .docs-table td {
     padding-left: 12px;
     padding-right: 12px;
+  }
+  /* Stack Replace above Delete so the row fits a phone screen. */
+  .docs-table .actions {
+    white-space: normal;
+  }
+  .docs-table .actions .btn-link {
+    display: block;
+    margin-left: auto;
+  }
+  .docs-table .actions .btn-link + .btn-link {
+    margin-left: auto;
   }
 }
 

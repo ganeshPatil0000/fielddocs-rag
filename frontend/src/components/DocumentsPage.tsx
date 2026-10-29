@@ -1,18 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 
+import { ApiError } from "../api/client";
 import type { Api } from "../api/client";
 import type { DocumentOut } from "../api/types";
+import { isBusy, updateNote } from "../lib/documents";
 import { documentTitle, timeAgo } from "../lib/format";
 
 const ACCEPT = ".pdf,.docx,.txt,.md";
-const IN_PROGRESS = new Set(["PENDING", "PROCESSING"]);
-
 const STATUS_LABEL: Record<string, string> = {
   INDEXED: "Ready",
   PROCESSING: "Indexing",
   PENDING: "Waiting",
   FAILED: "Failed",
+  DUPLICATE: "Duplicate",
 };
 
 interface Props {
@@ -26,7 +27,9 @@ export function DocumentsPage({ api, isAdmin, active }: Props) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
   const [uploading, setUploading] = useState<string | null>(null);
+  const [replacing, setReplacing] = useState<DocumentOut | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const replaceInput = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     try {
@@ -43,7 +46,7 @@ export function DocumentsPage({ api, isAdmin, active }: Props) {
   }, [active, load]);
 
   // While anything is still indexing, check again every few seconds.
-  const indexing = docs?.some((d) => IN_PROGRESS.has(d.status)) ?? false;
+  const indexing = docs?.some(isBusy) ?? false;
   useEffect(() => {
     if (!active || !indexing) return;
     const timer = window.setInterval(() => void load(), 4000);
@@ -64,6 +67,16 @@ export function DocumentsPage({ api, isAdmin, active }: Props) {
       });
       await load();
     } catch (error) {
+      // Same name as an existing document: almost always its new version.
+      if (error instanceof ApiError && error.code === "same_name" && error.docId) {
+        const offer =
+          `A document named ${file.name} already exists.\n\n` +
+          "Replace it with this file? Answers keep using the current version until the new one is ready.\n\n" +
+          "To keep both, press Cancel, rename the file and upload it again.";
+        setUploading(null);
+        if (window.confirm(offer)) await sendReplacement(error.docId, file.name, file);
+        return;
+      }
       setNotice({
         tone: "error",
         text: error instanceof Error ? error.message : `${file.name} didn't upload.`,
@@ -71,6 +84,42 @@ export function DocumentsPage({ api, isAdmin, active }: Props) {
     } finally {
       setUploading(null);
     }
+  };
+
+  /** Upload ``file`` as the new version of document ``docId``. */
+  const sendReplacement = async (docId: string, name: string, file: File) => {
+    setNotice(null);
+    setUploading(file.name);
+    try {
+      await api.replaceDocument(docId, file);
+      setNotice({
+        tone: "ok",
+        text: `Uploaded ${file.name} as the new version of ${name}. Answers switch to it once it is indexed.`,
+      });
+      await load();
+    } catch (error) {
+      const unchanged = error instanceof ApiError && error.code === "unchanged";
+      setNotice({
+        tone: unchanged ? "ok" : "error",
+        text: error instanceof Error ? error.message : `${file.name} didn't upload.`,
+      });
+    } finally {
+      setUploading(null);
+    }
+  };
+
+  const pickReplacement = (doc: DocumentOut) => {
+    setReplacing(doc);
+    replaceInput.current?.click();
+  };
+
+  const replace = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    const doc = replacing;
+    setReplacing(null);
+    if (!file || !doc) return;
+    await sendReplacement(doc.doc_id, doc.filename ?? doc.doc_id, file);
   };
 
   const remove = async (doc: DocumentOut) => {
@@ -112,6 +161,15 @@ export function DocumentsPage({ api, isAdmin, active }: Props) {
             >
               {uploading ? `Uploading ${uploading}…` : "Upload document"}
             </button>
+            <input
+              ref={replaceInput}
+              type="file"
+              accept={ACCEPT}
+              className="sr-only"
+              tabIndex={-1}
+              aria-hidden="true"
+              onChange={(e) => void replace(e)}
+            />
             <p className="docs-hint">PDF, Word, Markdown or text, up to 25 MB.</p>
           </div>
         )}
@@ -167,32 +225,56 @@ export function DocumentsPage({ api, isAdmin, active }: Props) {
               </tr>
             </thead>
             <tbody>
-              {docs.map((doc) => (
-                <tr key={doc.doc_id}>
-                  <td>
-                    <span className="doc-name">{documentTitle(doc.filename)}</span>
-                    <span className="doc-file">{doc.filename ?? doc.doc_id}</span>
-                    {doc.status === "FAILED" && doc.error && (
-                      <span className="doc-error">{doc.error.replace(/^retrying: /, "Retrying: ")}</span>
-                    )}
-                  </td>
-                  <td>
-                    <span className={`status status-${doc.status.toLowerCase()}`}>
-                      {STATUS_LABEL[doc.status] ?? doc.status}
-                    </span>
-                  </td>
-                  <td className="num">{doc.page_count ?? "–"}</td>
-                  <td className="num">{doc.chunk_count || "–"}</td>
-                  <td>{timeAgo(doc.updated_at ?? doc.created_at)}</td>
-                  {isAdmin && (
-                    <td className="actions">
-                      <button type="button" className="btn-link btn-danger" onClick={() => void remove(doc)}>
-                        Delete<span className="sr-only"> {doc.filename}</span>
-                      </button>
+              {docs.map((doc) => {
+                const note = updateNote(doc);
+                const ready = doc.status === "INDEXED";
+                const canReplace = ready && !isBusy(doc) && uploading === null;
+                return (
+                  <tr key={doc.doc_id}>
+                    <td>
+                      <span className="doc-name">{documentTitle(doc.filename)}</span>
+                      <span className="doc-file">
+                        {doc.filename ?? doc.doc_id}
+                        {(doc.version ?? 1) > 1 && <span className="doc-version">v{doc.version}</span>}
+                      </span>
+                      {(doc.status === "FAILED" || doc.status === "DUPLICATE") && doc.error && (
+                        <span className="doc-error">{doc.error.replace(/^retrying: /, "Retrying: ")}</span>
+                      )}
+                      {note && (
+                        <span className={note.tone === "error" ? "doc-error" : "doc-update"} role="status">
+                          {note.text}
+                        </span>
+                      )}
                     </td>
-                  )}
-                </tr>
-              ))}
+                    <td>
+                      <span className={`status status-${doc.status.toLowerCase()}`}>
+                        {STATUS_LABEL[doc.status] ?? doc.status}
+                      </span>
+                    </td>
+                    <td className="num">{doc.page_count ?? "–"}</td>
+                    <td className="num">{doc.chunk_count || "–"}</td>
+                    <td>{timeAgo(doc.updated_at ?? doc.created_at)}</td>
+                    {isAdmin && (
+                      <td className="actions">
+                        {ready && (
+                          <button
+                            type="button"
+                            className="btn-link"
+                            onClick={() => pickReplacement(doc)}
+                            disabled={!canReplace}
+                            title="Upload a new version of this document"
+                          >
+                            Replace<span className="sr-only"> {doc.filename}</span>
+                          </button>
+                        )}
+                        <button type="button" className="btn-link btn-danger" onClick={() => void remove(doc)}>
+                          Delete<span className="sr-only"> {doc.filename}</span>
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
