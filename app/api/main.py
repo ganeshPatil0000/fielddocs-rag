@@ -17,7 +17,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app import __version__
+from app import __version__, ratelimit
 from app.api.auth import Principal, get_principal, require_admin
 from app.config import get_settings
 from app.ingestion import duplicates
@@ -164,6 +164,21 @@ def create_app() -> FastAPI:
     def chat(body: ChatRequest, principal: Principal = Depends(get_principal)) -> ChatResponse:
         if len(body.question) > settings.max_question_chars:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Question too long")
+        decision = ratelimit.check(get_store(), principal.sub, settings)
+        if not decision.allowed:
+            logger.info(
+                "rate limited", extra={"user": principal.sub, "retry_after": decision.retry_after}
+            )
+            emit_metrics(
+                settings.metrics_namespace,
+                {"RateLimited": 1},
+                {"Service": "api", "Environment": settings.app_env},
+            )
+            raise HTTPException(
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                decision.message,
+                headers={"Retry-After": str(decision.retry_after)},
+            )
         return get_rag_service().answer(
             body.question.strip(),
             user=principal.sub,

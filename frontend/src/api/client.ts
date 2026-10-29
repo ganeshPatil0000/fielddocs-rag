@@ -33,7 +33,13 @@ export function describeError(status: number, detail?: string, requestId?: strin
   if (status === 0) return "Can't reach the FieldDocs service. Check your connection and try again.";
   if (status === 401) return "Your session has ended. Sign in again.";
   if (status === 403) return "Your account doesn't have permission to do that.";
-  if (status === 429) return "Too many requests right now. Wait a few seconds and try again.";
+  // The API's own 429 says which limit was hit and when it resets; API Gateway's
+  // whole-API throttle only says "Too Many Requests".
+  if (status === 429) {
+    return detail && detail !== "Too Many Requests"
+      ? detail
+      : "Too many requests right now. Wait a few seconds and try again.";
+  }
   if (status >= 500) {
     const ref = requestId ? ` (reference ${requestId})` : "";
     return `Something went wrong on the server${ref}. Try again in a moment.`;

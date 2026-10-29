@@ -202,6 +202,8 @@ All settings are environment variables, see `app/config.py`. The ones you will t
 | `PINECONE_SPARSE_INDEX`                | `fielddocs-sparse`          | sparse index for keyword search                          |
 | `HYBRID_KEYWORD_WEIGHT`                | `1.0`                       | keyword list's weight in the fusion (0 = off)            |
 | `HYBRID_MIN_KEYWORD_COVERAGE`          | `0.5`                       | keyword-only chunks must contain this share of the question's keywords |
+| `RATE_LIMIT_PER_MINUTE`                | `10`                        | questions per user per minute (0 = off); 429 with `Retry-After` |
+| `RATE_LIMIT_PER_DAY`                   | `200`                       | questions per user per UTC day: caps LLM spend per account |
 | `ENABLE_GROUNDING_CHECK`               | `false`                     | second LLM call that verifies the answer                 |
 | `STRICT_GROUNDING`                     | `true`                      | uncited/ungrounded answers become "I couldn't find this" |
 | `ENABLE_RERANK` / `RERANK_MODEL_ARN` | off                           | Bedrock rerank model (extra cost per query)              |
@@ -274,6 +276,22 @@ Two live copies of one manual drift apart and give conflicting answers, so uploa
   version, so the API answers 409 `same_name` and the web app offers **Replace** instead.
 * **Conflicting sources.** If two different documents still disagree (say 4 hours vs 6 hours),
   the prompt tells the model to show both values with their citations, never to blend them.
+
+## Rate limits
+
+Two layers, so one person can't slow the service down or run up the bill:
+
+1. **API Gateway** throttles the whole API (`api_throttle_rate` = 10 requests/second, burst 20)
+   before Lambda runs. That protects capacity, but it is shared by everyone.
+2. **Per user** (`app/ratelimit.py`): a fixed-window counter per Cognito user in DynamoDB
+   (`RATE#<user>`, one atomic `ADD` per question, TTL cleanup) allows 10 questions a minute and
+   200 a day. Over the limit the API answers 429 with `Retry-After`, and the web app shows
+   when to try again. If the counter itself fails, questions are allowed (fail open) and the
+   `RateLimitErrors` metric records it.
+
+Cached answers count too: the limit is about requests, and a cached answer still costs a
+Lambda run. A paid WAF rate rule per IP would add protection before sign-in; it is left out
+to stay on the free tier.
 
 ## Known limitations
 

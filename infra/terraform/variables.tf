@@ -164,6 +164,18 @@ variable "api_throttle_burst" {
   default = 20
 }
 
+variable "rate_limit_per_minute" {
+  description = "Questions one user may ask per minute (0 = off). API Gateway throttling is for the whole API."
+  type        = number
+  default     = 10
+}
+
+variable "rate_limit_per_day" {
+  description = "Questions one user may ask per UTC day (0 = off); caps LLM spend per account."
+  type        = number
+  default     = 200
+}
+
 variable "api_reserved_concurrency" {
   description = "-1 = no reservation. New AWS accounts have a 10-concurrency limit, so reserving fails there."
   type        = number

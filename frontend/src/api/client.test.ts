@@ -172,6 +172,10 @@ describe("describeError", () => {
   it("explains what to do", () => {
     expect(describeError(0)).toMatch(/check your connection/i);
     expect(describeError(429)).toMatch(/wait a few seconds/i);
+    expect(describeError(429, "Too Many Requests")).toMatch(/wait a few seconds/i);
+    expect(describeError(429, "You've asked 10 questions in the last minute. Try again in 20 seconds.")).toBe(
+      "You've asked 10 questions in the last minute. Try again in 20 seconds.",
+    );
     expect(describeError(415, "Allowed types: .pdf, .docx, .txt, .md")).toBe(
       "Allowed types: .pdf, .docx, .txt, .md",
     );

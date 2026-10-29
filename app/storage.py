@@ -10,6 +10,7 @@ HASH                   SHA#<sha256>           which document owns this exact con
 META                   CORPUS                 corpus version (bumped per ingest)
 CHAT#<user>#<session>  TURN#<epoch_ms>        conversation turns (TTL)
 CACHE#<sha256>         ANSWER                 cached answers (TTL)
+RATE#<user>            M#<minute> / D#<day>   per-user request counters (TTL)
 =====================  =====================  ==================================
 
 The HASH items act as a unique constraint on file content: a conditional write
@@ -83,6 +84,7 @@ class Store(Protocol):
     def get_history(self, user: str, session: str, limit: int) -> list[tuple[str, str]]: ...
     def cache_get(self, key: str) -> dict[str, Any] | None: ...
     def cache_put(self, key: str, value: dict[str, Any], ttl_seconds: int) -> None: ...
+    def hit(self, user: str, window: str, ttl_seconds: int) -> int: ...
 
 
 class DynamoStore:
@@ -254,6 +256,19 @@ class DynamoStore:
             }
         )
 
+    # -- rate limiting ----------------------------------------------------------
+    def hit(self, user: str, window: str, ttl_seconds: int) -> int:
+        """Count one request in a fixed time window; returns the new count.
+        One atomic UpdateItem, so concurrent Lambdas never lose a count."""
+        resp = self.table.update_item(
+            Key={"pk": f"RATE#{user}", "sk": window},
+            UpdateExpression="ADD #n :one SET expires_at = if_not_exists(expires_at, :exp)",
+            ExpressionAttributeNames={"#n": "count"},
+            ExpressionAttributeValues={":one": 1, ":exp": _now() + ttl_seconds},
+            ReturnValues="UPDATED_NEW",
+        )
+        return int(resp["Attributes"]["count"])
+
 
 class MemoryStore:
     """Thread-safe in-process store for local runs and tests."""
@@ -262,6 +277,7 @@ class MemoryStore:
         self._lock = threading.Lock()
         self.docs: dict[str, dict[str, Any]] = {}
         self.hashes: dict[str, str] = {}
+        self.counters: dict[str, int] = {}
         self.version = 0
         self.chats: dict[str, list[tuple[str, str]]] = {}
         self.cache: dict[str, tuple[float, dict[str, Any]]] = {}
@@ -331,6 +347,12 @@ class MemoryStore:
     def cache_put(self, key: str, value: dict[str, Any], ttl_seconds: int) -> None:
         with self._lock:
             self.cache[key] = (time.time() + ttl_seconds, value)
+
+    def hit(self, user: str, window: str, ttl_seconds: int) -> int:
+        with self._lock:
+            key = f"{user}#{window}"
+            self.counters[key] = self.counters.get(key, 0) + 1
+            return self.counters[key]
 
 
 @lru_cache

@@ -20,6 +20,8 @@ locals {
       AUTH_MODE              = "cognito"
       MIN_RELEVANCE_SCORE    = tostring(var.min_relevance_score)
       ENABLE_GROUNDING_CHECK = tostring(var.enable_grounding_check)
+      RATE_LIMIT_PER_MINUTE  = tostring(var.rate_limit_per_minute)
+      RATE_LIMIT_PER_DAY     = tostring(var.rate_limit_per_day)
       CORS_ORIGINS           = jsonencode(local.cors_origins)
       LANGSMITH_TRACING      = tostring(var.langsmith_tracing)
       LANGSMITH_PROJECT      = "${var.langsmith_project}-${var.environment}"

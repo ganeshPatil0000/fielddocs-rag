@@ -91,6 +91,11 @@ class Settings(BaseSettings):
     auth_mode: Literal["cognito", "none"] = "cognito"
     admin_group: str = "admin"
     max_question_chars: int = 2000
+    # Per-user limits on /v1/chat (0 = off). API Gateway also throttles the whole
+    # API (requests/second for everyone); these stop one user using it all and cap
+    # what one account can spend on LLM calls.
+    rate_limit_per_minute: int = Field(default=10, ge=0)
+    rate_limit_per_day: int = Field(default=200, ge=0)
     cors_origins: list[str] = ["*"]
     local_seed_dir: str | None = None
 
