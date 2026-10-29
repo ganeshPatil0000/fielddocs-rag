@@ -50,4 +50,4 @@ terraform -chdir="$TF_DIR" apply -input=false "${TF_VARS[@]}" ${AUTO_APPROVE:+-a
 echo
 terraform -chdir="$TF_DIR" output
 echo
-echo "Next: ./scripts/put_secrets.sh (first deploy), then ./scripts/smoke_test.sh"
+echo "Next: ./scripts/put_secrets.sh (first deploy only), ./scripts/deploy_web.sh, ./scripts/smoke_test.sh"

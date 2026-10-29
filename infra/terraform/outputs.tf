@@ -33,3 +33,15 @@ output "dashboard_url" {
 output "github_deploy_role_arn" {
   value = try(aws_iam_role.github_deploy[0].arn, "")
 }
+
+output "web_url" {
+  value = local.web_origin
+}
+
+output "web_bucket" {
+  value = aws_s3_bucket.web.bucket
+}
+
+output "web_distribution_id" {
+  value = aws_cloudfront_distribution.web.id
+}

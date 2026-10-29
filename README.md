@@ -117,12 +117,22 @@ plan runs in AWS `us-east-1`, so each search crosses Regions over HTTPS (roughly
 cp infra/terraform/terraform.tfvars.example infra/terraform/terraform.tfvars   # set alarm_email
 ./scripts/deploy.sh                        # builds image, pushes to ECR, terraform apply
 ./scripts/put_secrets.sh                   # Pinecone + LangSmith keys -> SSM (prompted, not echoed)
+./scripts/deploy_web.sh                    # build the web app, upload to S3, refresh CloudFront
 EMAIL=you@example.com PASSWORD='ChangeMe-12345' ADMIN=1 ./scripts/create_user.sh
 export TOKEN=$(EMAIL=you@example.com PASSWORD='ChangeMe-12345' ./scripts/get_token.sh)
 for f in sample_docs/*.md; do ./scripts/upload_doc.sh "$f"; done
 ./scripts/smoke_test.sh
 python -m evals.run_eval --url "$(terraform -chdir=infra/terraform output -raw api_url)" --token "$TOKEN"
 ```
+
+On Windows, run the scripts in Git Bash. The deploy scripts already handle its quirks
+(ECR login tokens too long for Windows Credential Manager, `/`-paths rewritten by Git Bash).
+
+The web app is served from a private S3 bucket through CloudFront (`terraform output web_url`):
+HTTPS only, hashed assets cached for a year, `index.html` re-checked on every visit, and security
+headers including a Content Security Policy that only allows calls to the API, Cognito and the
+documents bucket. CORS on the API and the upload bucket allows only that origin (plus the Vite dev
+server outside prod); `smoke_test.sh` checks both, and that other sites are refused.
 
 Confirm the SNS subscription email so alarms reach you. `terraform -chdir=infra/terraform output dashboard_url`
 gives the CloudWatch dashboard (questions, refusals, tokens, estimated cost, latency, errors, DLQ).

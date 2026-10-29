@@ -10,8 +10,9 @@ monthly_budget_usd = 10
 # llm_model_id     = "global.amazon.nova-2-lite-v1:0"
 # utility_model_id = "amazon.nova-micro-v1:0"
 
-# Lock this down to your UI's origin once you have one
-cors_origins = ["*"]
+# Browser origins allowed to call the API. Leave unset: it defaults to the CloudFront
+# web app (+ http://localhost:5173 outside prod).
+# cors_origins = ["https://example.com"]
 
 # Enable GitHub Actions deploys (OIDC, no stored keys)
 # github_repository = "your-github-user/fielddocs-rag"

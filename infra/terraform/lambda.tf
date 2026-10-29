@@ -19,7 +19,7 @@ locals {
     AUTH_MODE              = "cognito"
     MIN_RELEVANCE_SCORE    = tostring(var.min_relevance_score)
     ENABLE_GROUNDING_CHECK = tostring(var.enable_grounding_check)
-    CORS_ORIGINS           = jsonencode(var.cors_origins)
+    CORS_ORIGINS           = jsonencode(local.cors_origins)
     LANGSMITH_TRACING      = tostring(var.langsmith_tracing)
     LANGSMITH_PROJECT      = "${var.langsmith_project}-${var.environment}"
   }

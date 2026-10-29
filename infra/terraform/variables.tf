@@ -128,8 +128,9 @@ variable "monthly_budget_usd" {
 
 # --- api ----------------------------------------------------------------------
 variable "cors_origins" {
-  type    = list(string)
-  default = ["*"]
+  description = "Browser origins allowed to call the API and upload documents. Empty = the CloudFront web app (plus http://localhost:5173 outside prod)."
+  type        = list(string)
+  default     = []
 }
 
 variable "api_throttle_rate" {
