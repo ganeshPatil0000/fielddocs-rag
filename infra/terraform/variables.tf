@@ -31,6 +31,26 @@ variable "lambda_architecture" {
 }
 
 # --- models -------------------------------------------------------------------
+variable "llm_provider" {
+  description = "bedrock, or openai for any OpenAI-compatible API (key in SSM OPENAI_API_KEY)."
+  type        = string
+  default     = "bedrock"
+  validation {
+    condition     = contains(["bedrock", "openai"], var.llm_provider)
+    error_message = "llm_provider must be bedrock or openai."
+  }
+}
+
+variable "openai_base_url" {
+  description = "Base URL of the OpenAI-compatible API (only used when llm_provider = openai)."
+  type        = string
+  default     = ""
+  validation {
+    condition     = var.llm_provider != "openai" || startswith(var.openai_base_url, "https://")
+    error_message = "llm_provider = openai needs openai_base_url, and it must use https://."
+  }
+}
+
 variable "llm_model_id" {
   type    = string
   default = "global.amazon.nova-2-lite-v1:0"

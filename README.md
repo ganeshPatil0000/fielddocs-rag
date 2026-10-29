@@ -107,6 +107,29 @@ colour. Answers are rendered from text, never inserted as HTML, so model output 
    make eval           # golden-set metrics against the real models
    ```
 
+### Without Bedrock: any OpenAI-compatible API
+
+Until Bedrock is unlocked (or to compare providers), the same app can call an
+OpenAI-compatible API such as an LLM router. With AIRouter, the same Amazon models
+are available, so nothing else changes (the Pinecone index stays 1024-d):
+
+```bash
+# .env
+LLM_PROVIDER=openai
+OPENAI_BASE_URL=https://api.airouter.in/v1
+OPENAI_API_KEY=...                      # your key, only in .env / SSM
+LLM_MODEL_ID=amazon/nova-2-lite
+UTILITY_MODEL_ID=amazon/nova-micro
+EMBEDDING_MODEL_ID=amazon/titan-embed-text-v2
+```
+
+`python scripts/check_llm_api.py` sends three tiny requests and checks the vector size
+before you ingest anything. For the AWS deploy, set the same values in `terraform.tfvars`
+(see the example file) and store the key with `./scripts/put_secrets.sh`. A third-party
+router sees your questions and document text, so use it with sample documents, not
+confidential ones. Bedrock Guardrails apply only with `LLM_PROVIDER=bedrock`. When you
+switch providers, re-ingest the documents so every vector comes from the same model.
+
 ## 3. Deploy to AWS
 
 Prerequisites: AWS CLI v2, Terraform ≥ 1.10, Docker, an AWS account with Bedrock access (step 2.1).
@@ -116,7 +139,7 @@ plan runs in AWS `us-east-1`, so each search crosses Regions over HTTPS (roughly
 ```bash
 cp infra/terraform/terraform.tfvars.example infra/terraform/terraform.tfvars   # set alarm_email
 ./scripts/deploy.sh                        # builds image, pushes to ECR, terraform apply
-./scripts/put_secrets.sh                   # Pinecone + LangSmith keys -> SSM (prompted, not echoed)
+./scripts/put_secrets.sh                   # Pinecone, LangSmith, router keys -> SSM (prompted, not echoed)
 ./scripts/deploy_web.sh                    # build the web app, upload to S3, refresh CloudFront
 EMAIL=you@example.com PASSWORD='ChangeMe-12345' ADMIN=1 ./scripts/create_user.sh
 export TOKEN=$(EMAIL=you@example.com PASSWORD='ChangeMe-12345' ./scripts/get_token.sh)
@@ -168,6 +191,8 @@ All settings are environment variables, see `app/config.py`. The ones you will t
 
 | Variable                                 | Default                       | Notes                                                    |
 | ---------------------------------------- | ----------------------------- | -------------------------------------------------------- |
+| `LLM_PROVIDER`                         | `bedrock`                   | `bedrock`, `openai` (OpenAI-compatible API) or `fake` (offline) |
+| `OPENAI_BASE_URL` / `OPENAI_API_KEY` | unset                         | only for `LLM_PROVIDER=openai`                           |
 | `LLM_MODEL_ID`                         | `global.amazon.nova-2-lite-v1:0` | answer model ($0.30 / $2.50 per 1M tokens in / out)      |
 | `UTILITY_MODEL_ID`                     | `amazon.nova-micro-v1:0`    | follow-up rewriting, grounding judge (cheapest)          |
 | `MIN_RELEVANCE_SCORE`                  | `0.35`                      | below this a chunk is ignored; tune with `make eval`   |

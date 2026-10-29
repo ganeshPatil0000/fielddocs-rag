@@ -1,28 +1,32 @@
 locals {
-  common_env = {
-    APP_ENV                = var.environment
-    LOG_LEVEL              = "INFO"
-    LLM_PROVIDER           = "bedrock"
-    LLM_MODEL_ID           = var.llm_model_id
-    UTILITY_MODEL_ID       = var.utility_model_id
-    EMBEDDING_MODEL_ID     = var.embedding_model_id
-    EMBEDDING_DIMENSIONS   = tostring(var.embedding_dimensions)
-    VECTOR_STORE           = "pinecone"
-    PINECONE_INDEX         = var.pinecone_index
-    PINECONE_NAMESPACE     = var.pinecone_namespace
-    ENABLE_HYBRID_SEARCH   = tostring(var.enable_hybrid_search)
-    PINECONE_SPARSE_INDEX  = var.pinecone_sparse_index
-    STORAGE_BACKEND        = "dynamodb"
-    DYNAMODB_TABLE         = aws_dynamodb_table.app.name
-    DOCUMENTS_BUCKET       = aws_s3_bucket.docs.bucket
-    SSM_PARAMETER_PREFIX   = local.ssm_prefix
-    AUTH_MODE              = "cognito"
-    MIN_RELEVANCE_SCORE    = tostring(var.min_relevance_score)
-    ENABLE_GROUNDING_CHECK = tostring(var.enable_grounding_check)
-    CORS_ORIGINS           = jsonencode(local.cors_origins)
-    LANGSMITH_TRACING      = tostring(var.langsmith_tracing)
-    LANGSMITH_PROJECT      = "${var.langsmith_project}-${var.environment}"
-  }
+  common_env = merge(
+    {
+      APP_ENV                = var.environment
+      LOG_LEVEL              = "INFO"
+      LLM_PROVIDER           = var.llm_provider
+      LLM_MODEL_ID           = var.llm_model_id
+      UTILITY_MODEL_ID       = var.utility_model_id
+      EMBEDDING_MODEL_ID     = var.embedding_model_id
+      EMBEDDING_DIMENSIONS   = tostring(var.embedding_dimensions)
+      VECTOR_STORE           = "pinecone"
+      PINECONE_INDEX         = var.pinecone_index
+      PINECONE_NAMESPACE     = var.pinecone_namespace
+      ENABLE_HYBRID_SEARCH   = tostring(var.enable_hybrid_search)
+      PINECONE_SPARSE_INDEX  = var.pinecone_sparse_index
+      STORAGE_BACKEND        = "dynamodb"
+      DYNAMODB_TABLE         = aws_dynamodb_table.app.name
+      DOCUMENTS_BUCKET       = aws_s3_bucket.docs.bucket
+      SSM_PARAMETER_PREFIX   = local.ssm_prefix
+      AUTH_MODE              = "cognito"
+      MIN_RELEVANCE_SCORE    = tostring(var.min_relevance_score)
+      ENABLE_GROUNDING_CHECK = tostring(var.enable_grounding_check)
+      CORS_ORIGINS           = jsonencode(local.cors_origins)
+      LANGSMITH_TRACING      = tostring(var.langsmith_tracing)
+      LANGSMITH_PROJECT      = "${var.langsmith_project}-${var.environment}"
+    },
+    # Only set when used, so Bedrock deploys don't carry an empty variable.
+    var.openai_base_url == "" ? {} : { OPENAI_BASE_URL = var.openai_base_url },
+  )
 }
 
 resource "aws_cloudwatch_log_group" "api" {

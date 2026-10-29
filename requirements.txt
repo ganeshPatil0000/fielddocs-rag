@@ -8,6 +8,8 @@ python-dotenv>=1.0
 langchain-core>=1.2,<2
 langchain-text-splitters>=1.0,<2
 langchain-aws>=1.0,<2
+# OpenAI-compatible APIs (LLM_PROVIDER=openai, e.g. AIRouter)
+langchain-openai>=1.0,<2
 langchain-pinecone>=0.2.13,<0.3
 # langchain-pinecone is tested against pinecone 6.x
 pinecone>=6.0.2,<7

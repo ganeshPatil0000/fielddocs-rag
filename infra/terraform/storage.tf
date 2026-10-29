@@ -192,7 +192,7 @@ resource "aws_dynamodb_table" "app" {
 # scripts/put_secrets.sh so they never appear in Terraform state or git.
 # ----------------------------------------------------------------------------
 resource "aws_ssm_parameter" "secret" {
-  for_each = toset(["PINECONE_API_KEY", "LANGSMITH_API_KEY"])
+  for_each = toset(["PINECONE_API_KEY", "LANGSMITH_API_KEY", "OPENAI_API_KEY"])
 
   name  = "${local.ssm_prefix}/${each.key}"
   type  = "SecureString"

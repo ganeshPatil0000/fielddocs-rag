@@ -87,7 +87,9 @@ langchain-core==1.7.1
     #   langchain-pinecone
     #   langchain-text-splitters
 langchain-openai==1.7.3
-    # via langchain-pinecone
+    # via
+    #   -r requirements.txt
+    #   langchain-pinecone
 langchain-pinecone==0.2.13
     # via -r requirements.txt
 langchain-protocol==0.0.20

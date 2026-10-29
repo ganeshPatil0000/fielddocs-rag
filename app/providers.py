@@ -16,6 +16,7 @@ from botocore.config import Config
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_core.language_models.chat_models import BaseChatModel
+from pydantic import SecretStr
 
 from app.config import Settings, get_settings
 
@@ -32,11 +33,33 @@ BOTO_CONFIG = Config(
 )
 
 
+def _openai_key(settings: Settings) -> SecretStr:
+    if settings.openai_api_key is None:
+        raise RuntimeError(
+            "OPENAI_API_KEY is not set: put it in .env (local) or run ./scripts/put_secrets.sh"
+        )
+    return settings.openai_api_key
+
+
 def _chat_model(settings: Settings, model_id: str, max_tokens: int) -> BaseChatModel:
     if settings.llm_provider == "fake":
         from app.fakes import ExtractiveFakeChatModel
 
         return ExtractiveFakeChatModel()
+
+    if settings.llm_provider == "openai":
+        from langchain_openai import ChatOpenAI
+
+        return ChatOpenAI(
+            model=model_id,
+            base_url=settings.openai_base_url,
+            api_key=_openai_key(settings),
+            temperature=settings.llm_temperature,
+            max_tokens=max_tokens,  # sent as max_completion_tokens
+            use_responses_api=False,  # routers implement /chat/completions
+            timeout=60,
+            max_retries=3,
+        )
 
     from langchain_aws import ChatBedrockConverse
 
@@ -75,6 +98,23 @@ def get_embeddings() -> Embeddings:
         from app.fakes import HashingEmbeddings
 
         return HashingEmbeddings(dimensions=s.embedding_dimensions)
+
+    if s.llm_provider == "openai":
+        from langchain_openai import OpenAIEmbeddings
+
+        return OpenAIEmbeddings(
+            model=s.embedding_model_id,
+            base_url=s.openai_base_url,
+            api_key=_openai_key(s),
+            dimensions=s.embedding_dimensions if s.openai_send_dimensions else None,
+            # Send plain text and ask for plain floats: token-id input and base64
+            # output are OpenAI-only features that routers often don't support.
+            check_embedding_ctx_length=False,
+            model_kwargs={"encoding_format": "float"},
+            chunk_size=64,  # texts per request; keeps router requests small
+            timeout=60,
+            max_retries=3,
+        )
 
     from langchain_aws import BedrockEmbeddings
 

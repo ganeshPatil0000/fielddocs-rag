@@ -2,7 +2,7 @@
 
 ``run_eval.py`` checks hard facts cheaply (right document? cited? key number in
 the answer? refused when it should be?). This script adds four RAGAS metrics,
-each scored 0-1 by a judge LLM on Bedrock:
+each scored 0-1 by a judge LLM (Bedrock, or an OpenAI-compatible API):
 
 * faithfulness      - is every claim in the answer supported by the retrieved
                       chunks? (low = hallucination)
@@ -13,7 +13,7 @@ each scored 0-1 by a judge LLM on Bedrock:
 The last two compare against the ``reference`` answer in golden_set.jsonl.
 Unanswerable questions are skipped here; run_eval.py scores refusals.
 
-It runs in-process against Bedrock + Pinecone from your .env (the judge needs a
+It runs in-process against your LLM provider + Pinecone from your .env (the judge needs a
 real LLM), costs a few cents per run, and is not part of CI:
 
     pip install -e ".[eval]" -c requirements.lock
@@ -160,16 +160,18 @@ def _token_usage(llm_result: Any) -> Any:
 
 
 def judge(model_id: str, region: str) -> tuple[Any, Any]:
-    """Bedrock judge LLM + Titan embeddings, wrapped for RAGAS."""
-    from langchain_aws import ChatBedrockConverse
+    """Judge LLM + embeddings from the configured provider, wrapped for RAGAS."""
     from ragas.embeddings import LangchainEmbeddingsWrapper
     from ragas.llms import LangchainLLMWrapper
 
-    from app.providers import BOTO_CONFIG, get_embeddings
+    from app.config import get_settings
+    from app.providers import _chat_model, get_embeddings
 
-    llm = ChatBedrockConverse(
-        model=model_id, region_name=region, temperature=0.0, max_tokens=2048, config=BOTO_CONFIG
+    # The judge scores answers, so it runs without the app's Bedrock guardrail.
+    settings = get_settings().model_copy(
+        update={"aws_region": region, "bedrock_guardrail_id": None}
     )
+    llm = _chat_model(settings, model_id, max_tokens=2048)
     return LangchainLLMWrapper(llm), LangchainEmbeddingsWrapper(get_embeddings())
 
 
@@ -226,7 +228,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--golden", type=Path, default=HERE / "golden_set.jsonl")
     parser.add_argument("--seed", type=Path, help="ingest this folder first")
-    parser.add_argument("--judge-model", help="Bedrock model that scores answers")
+    parser.add_argument("--judge-model", help="model that scores answers")
     parser.add_argument("--limit", type=int, help="only the first N answerable questions")
     parser.add_argument("--max-workers", type=int, default=2)
     parser.add_argument("--no-gate", action="store_true", help="never exit non-zero")
@@ -238,7 +240,7 @@ def main() -> int:
 
     settings = get_settings()
     if settings.llm_provider == "fake":
-        print("RAGAS needs a real judge LLM: set LLM_PROVIDER=bedrock (see .env.example).")
+        print("RAGAS needs a real judge LLM: set LLM_PROVIDER to bedrock or openai in .env.")
         return 2
     judge_model = args.judge_model or settings.llm_model_id
 

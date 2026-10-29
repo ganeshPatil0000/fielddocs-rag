@@ -24,8 +24,9 @@ class Settings(BaseSettings):
     aws_region: str = Field(default="ap-southeast-2", validation_alias="AWS_REGION")
 
     # --- providers -----------------------------------------------------------
-    # "bedrock" talks to AWS; "fake" is fully offline (tests, laptop demos).
-    llm_provider: Literal["bedrock", "fake"] = "bedrock"
+    # "bedrock" talks to AWS; "openai" is any OpenAI-compatible API (e.g. an LLM
+    # router such as AIRouter, set OPENAI_BASE_URL); "fake" is fully offline.
+    llm_provider: Literal["bedrock", "openai", "fake"] = "bedrock"
     # Global inference profile: Nova 2 Lite has no in-region on-demand option in Sydney.
     llm_model_id: str = "global.amazon.nova-2-lite-v1:0"
     # Cheaper model for helper calls (question rewriting, grounding judge).
@@ -36,6 +37,13 @@ class Settings(BaseSettings):
     embedding_dimensions: int = 1024
     bedrock_guardrail_id: str | None = None
     bedrock_guardrail_version: str = "DRAFT"
+    # OpenAI-compatible provider. The key comes from .env locally and from SSM
+    # (/<prefix>/OPENAI_API_KEY) when deployed; it is never written in code.
+    openai_base_url: str | None = None
+    openai_api_key: SecretStr | None = None
+    # Ask the API for `embedding_dimensions`-sized vectors. Turn off if the
+    # router rejects the "dimensions" field (the model must then return 1024).
+    openai_send_dimensions: bool = True
 
     # --- vector store --------------------------------------------------------
     vector_store: Literal["pinecone", "memory"] = "pinecone"
@@ -101,6 +109,8 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "Fake/in-memory providers are not allowed in deployed environments"
                 )
+        if self.llm_provider == "openai" and not self.openai_base_url:
+            raise ValueError("LLM_PROVIDER=openai requires OPENAI_BASE_URL")
         if self.enable_rerank and not self.rerank_model_arn:
             raise ValueError("ENABLE_RERANK=true requires RERANK_MODEL_ARN")
         return self
