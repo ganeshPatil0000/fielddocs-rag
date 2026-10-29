@@ -106,6 +106,16 @@ resource "aws_apigatewayv2_route" "proxy" {
   authorizer_id      = aws_apigatewayv2_authorizer.jwt.id
 }
 
+# Browsers send a CORS preflight (OPTIONS, without the Authorization header) before any
+# call that carries a token. The JWT-protected ANY route above would reject it with 401,
+# so preflights get their own route without auth; FastAPI's CORS middleware answers them.
+# See "Configuring CORS for an HTTP API" in the API Gateway docs.
+resource "aws_apigatewayv2_route" "preflight" {
+  api_id    = aws_apigatewayv2_api.http.id
+  route_key = "OPTIONS /{proxy+}"
+  target    = "integrations/${aws_apigatewayv2_integration.api.id}"
+}
+
 resource "aws_cloudwatch_log_group" "api_access" {
   name              = "/aws/apigateway/${local.name}"
   retention_in_days = var.log_retention_days

@@ -25,10 +25,23 @@ if aws ecr describe-images --repository-name "${REPO_URL#*/}" --image-ids imageT
   echo "==> image ${TAG} already in ECR, skipping build"
 else
   echo "==> build ${TAG} for ${PLATFORM}"
-  aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "$REGISTRY"
   # --provenance=false: Lambda cannot use multi-manifest (attestation) images.
   docker build --platform "$PLATFORM" --provenance=false -t "${REPO_URL}:${TAG}" .
-  docker push "${REPO_URL}:${TAG}"
+
+  echo "==> push ${TAG} to ECR"
+  # Push with a throwaway Docker config that already holds the ECR token, instead of
+  # `docker login`. On Windows, docker login always saves to Credential Manager, which
+  # can't hold the long ECR token ("The stub received bad data"). The temporary file is
+  # deleted when the script ends, and your own Docker config is never touched.
+  PUSH_CONFIG=$(mktemp -d)
+  trap 'rm -rf "$PUSH_CONFIG"' EXIT
+  DOCKER_DIR="${DOCKER_CONFIG:-$HOME/.docker}"
+  if [ -d "$DOCKER_DIR/contexts" ]; then cp -r "$DOCKER_DIR/contexts" "$PUSH_CONFIG/"; fi
+  ECR_AUTH=$(printf 'AWS:%s' "$(aws ecr get-login-password --region "$REGION")" | base64 | tr -d '\n')
+  printf '{"currentContext": "%s", "auths": {"%s": {"auth": "%s"}}}\n' \
+    "$(docker context show)" "$REGISTRY" "$ECR_AUTH" >"$PUSH_CONFIG/config.json"
+  unset ECR_AUTH
+  docker --config "$PUSH_CONFIG" push "${REPO_URL}:${TAG}"
 fi
 
 echo "==> terraform apply"

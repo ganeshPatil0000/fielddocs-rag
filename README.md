@@ -131,6 +131,10 @@ gives the CloudWatch dashboard (questions, refusals, tokens, estimated cost, lat
 
 ### CI/CD
 
+> On an AWS **Free plan** project (new sign-up experience) the account's service control policy
+> denies `iam:*Provider*`, so Terraform can't create the GitHub OIDC provider. Deploy from your
+> machine with `./scripts/deploy.sh` until the account is upgraded.
+
 1. Enable the S3 backend block in `infra/terraform/versions.tf` (state must be shared with CI).
 2. Set `github_repository = "you/fielddocs-rag"` in tfvars and apply; copy the `github_deploy_role_arn` output.
 3. In GitHub: add secret `AWS_DEPLOY_ROLE_ARN`, create environments `dev` and `prod` (add required reviewers to `prod`).

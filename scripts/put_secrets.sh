@@ -2,6 +2,9 @@
 # Store API keys in SSM Parameter Store (SecureString). Prompts so keys never
 # land in shell history. Lambdas read them on their next cold start.
 set -euo pipefail
+# Git Bash on Windows rewrites arguments that start with "/" into Windows paths,
+# which would turn /fielddocs/dev/... into C:/Program Files/Git/fielddocs/dev/...
+export MSYS_NO_PATHCONV=1
 
 ENVIRONMENT="${ENVIRONMENT:-dev}"
 PROJECT="${PROJECT:-fielddocs}"

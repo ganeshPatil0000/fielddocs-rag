@@ -15,6 +15,13 @@ code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$API_URL/v1/chat" \
   -H 'Content-Type: application/json' -d '{"question":"test question"}')
 [ "$code" = "401" ] || fail "expected 401 without token, got $code"
 
+echo "-> browser CORS preflight must work without a token"
+headers=$(curl -s -o /dev/null -D - -X OPTIONS "$API_URL/v1/documents" \
+  -H 'Origin: http://localhost:5173' -H 'Access-Control-Request-Method: GET' \
+  -H 'Access-Control-Request-Headers: authorization')
+echo "$headers" | grep -qi '^access-control-allow-origin:' ||
+  fail "CORS preflight (OPTIONS) was rejected - the web app can't call the API"
+
 if [ -n "${TOKEN:-}" ]; then
   echo "-> authenticated chat"
   body=$(curl -sf -X POST "$API_URL/v1/chat" -H "Authorization: Bearer $TOKEN" \
