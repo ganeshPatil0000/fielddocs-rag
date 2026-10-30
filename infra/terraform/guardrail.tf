@@ -24,9 +24,10 @@ resource "aws_bedrock_guardrail" "main" {
       input_strength  = "HIGH"
       output_strength = "NONE"
     }
-    # Content filters kept deliberately LOW, and VIOLENCE left out on purpose:
-    # field-safety manuals discuss hazards ("electric shock", "risk of death"),
-    # which a strict filter would wrongly block.
+    # Content filters. VIOLENCE is filtered on INPUT only (to catch malicious
+    # requests like "how to kill people"), never on OUTPUT, so legitimate
+    # field-safety answers about hazards ("electric shock", "risk of death")
+    # are never blocked. The rest stay LOW.
     filters_config {
       type            = "HATE"
       input_strength  = "LOW"
@@ -46,6 +47,11 @@ resource "aws_bedrock_guardrail" "main" {
       type            = "MISCONDUCT"
       input_strength  = "LOW"
       output_strength = "LOW"
+    }
+    filters_config {
+      type            = "VIOLENCE"
+      input_strength  = "MEDIUM"
+      output_strength = "NONE"
     }
   }
 }
