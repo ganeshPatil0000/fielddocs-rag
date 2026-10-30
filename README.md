@@ -207,7 +207,7 @@ All settings are environment variables, see `app/config.py`. The ones you will t
 | `ENABLE_GROUNDING_CHECK`               | `false`                     | second LLM call that verifies the answer                 |
 | `STRICT_GROUNDING`                     | `true`                      | uncited/ungrounded answers become "I couldn't find this" |
 | `ENABLE_RERANK` / `RERANK_MODEL_ARN` | off                           | Bedrock rerank model (extra cost per query)              |
-| `BEDROCK_GUARDRAIL_ID`                 | unset                         | attach a Bedrock Guardrail (PII, denied topics)          |
+| `BEDROCK_GUARDRAIL_ID`                 | unset                         | attach a Bedrock Guardrail (prompt-attack + content filters)          |
 
 ## Evaluation
 
@@ -339,7 +339,10 @@ to stay on the free tier.
 * Scanned PDFs have no text layer and are marked FAILED; add Amazon Textract for OCR.
 * No response streaming (API Gateway HTTP API + Lambda buffer responses).
 * DOCX tables are appended after body text rather than kept in place.
-* No Bedrock Guardrail is attached, so nothing filters PII or unsafe topics on the way in or out.
+* A Bedrock Guardrail (prompt-attack filter on HIGH plus content filters) is attached to every
+  model call, created as code in `infra/terraform/guardrail.tf`. Contextual grounding and
+  PII/denied-topic policies are not configured yet (grounding needs the retrieved context
+  tagged as the grounding source in the Converse request).
 * Thumbs-up/down feedback is recorded in LangSmith but is not yet fed back into the golden set.
 * Retrieval metrics for the PDF are page-level, not section-level, because PDF text extraction
   loses the heading structure. Fixing that needs heading detection in the loader.

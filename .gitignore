@@ -10,3 +10,7 @@ infra/terraform/*.tfstate*
 infra/terraform/terraform.tfvars
 infra/terraform/.terraform.lock.hcl.bak
 evals/reports/
+
+# Local backup copies (may contain secrets)
+*.bak
+*.bak.*

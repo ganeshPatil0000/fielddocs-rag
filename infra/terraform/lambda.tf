@@ -28,6 +28,10 @@ locals {
     },
     # Only set when used, so Bedrock deploys don't carry an empty variable.
     var.openai_base_url == "" ? {} : { OPENAI_BASE_URL = var.openai_base_url },
+    var.enable_guardrail ? {
+      BEDROCK_GUARDRAIL_ID      = aws_bedrock_guardrail.main[0].guardrail_id
+      BEDROCK_GUARDRAIL_VERSION = "DRAFT"
+    } : {},
   )
 }
 
