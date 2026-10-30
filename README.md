@@ -211,23 +211,64 @@ All settings are environment variables, see `app/config.py`. The ones you will t
 
 ## Evaluation
 
-Two layers, because they answer different questions:
+### The corpus and the question set
 
-| Runner | How it scores | Cost | When |
-| ------ | ------------- | ---- | ---- |
-| `make eval` (`evals/run_eval.py`) | exact checks: right document retrieved and cited, key fact in the answer, refusals correct, tokens, latency | ~free | every change; offline version gates CI |
-| `make eval-ragas` (`evals/ragas_eval.py`) | [RAGAS](https://docs.ragas.io) metrics judged by a Bedrock LLM: **faithfulness** (hallucination), **answer relevancy**, **context precision**, **context recall** | a few cents | before a release, after prompt / retrieval / model changes |
+`sample_docs/` holds six synthetic manuals, about 27 KB in total, deliberately in three
+formats so each loader path is exercised: markdown, one DOCX (headings survive as Word
+heading styles) and one PDF (extraction keeps the page number but loses the heading
+structure). Two facts disagree between an older and a newer manual on purpose, and three
+prompt-injection strings are planted in the text.
+
+`evals/golden_set.jsonl` holds 73 labelled questions:
+
+| Category | n | What it tests |
+| --- | --- | --- |
+| `factual` | 44 | a single fact from one section |
+| `multi_hop` | 6 | the answer needs two sections, often in different documents |
+| `follow_up` | 8 | a question that only makes sense after the previous turn (`history`) |
+| `fault_code` | 3 | exact codes such as `LOS-NET` that embeddings blur |
+| `conflicting` | 2 | two manuals disagree; the answer must show both, not average them |
+| `injection` | 4 | instructions planted in a document, and in the question |
+| `unanswerable` | 6 | must be refused, not guessed |
+
+Each answerable question is labelled with the **chunks** that should come back, as a
+section heading path or, for the PDF, a page number. Sections are used rather than chunk
+indices so the labels stay valid when the ablation sweep changes the chunk size.
+
+### Metrics
+
+| Runner | Measures | Cost |
+| --- | --- | --- |
+| `make eval` | retrieval: `recall@k`, `MRR`, `hit@k`, plus the right document retrieved and cited; answers: key fact present, refusals correct, injections resisted; tokens and latency | a few cents |
+| `make ablate` | the same retrieval metrics across settings, one factor at a time, with no answer generation | embeddings only |
+| `make eval-ragas` | [RAGAS](https://docs.ragas.io) judged by an LLM: **faithfulness**, **answer relevancy**, **context precision**, **context recall** | a few cents |
+
+`k` is `RETRIEVAL_K`: the chunks that survive fusion, the version filter and the context
+budget, which are exactly the ones the model is shown.
 
 ```bash
-pip install -e ".[eval]" -c requirements.lock    # ragas, pinned; stays out of the Lambda image
-python -m evals.ragas_eval --seed sample_docs     # judge = LLM_MODEL_ID by default
-python -m evals.ragas_eval --judge-model amazon.nova-micro-v1:0 --limit 5
+make eval                      # writes evals/reports/eval.json
+make ablate                    # writes evals/reports/ablation.md
+make eval-offline              # fake embeddings: checks the harness, not the quality
+python -m evals.run_eval --category multi_hop     # one slice
+python -m evals.ablation --only "Chunk size"      # one sweep
 ```
 
-Context precision and recall compare against the `reference` answer stored with each golden
-question. Results print per question and are saved to `evals/reports/ragas-<time>.json`;
-the run exits non-zero below the thresholds in `evals/ragas_eval.py`. A judge from a stronger or
-different model family than the answering model gives less biased scores.
+`make eval-offline` and `make ablate-offline` run the same code with hashing embeddings
+and the extractive fake model. They prove the pipeline works without an API key; their
+numbers are not a quality score and should never be quoted as one.
+
+### Results
+
+Recorded against the real Bedrock stack and the 73-question golden set
+(full report in `evals/reports/eval.json`). Retrieval and grounding are scored in
+code; RAGAS faithfulness (`make eval-ragas`) is a separate run, not yet recorded.
+
+| Date | Models | recall@k | MRR | faithfulness | Notes |
+| --- | --- | --- | --- | --- | --- |
+| 2026-10-30 | Nova 2 Lite + Titan Embed v2 (Bedrock) | 0.992 | 0.947 | _pending_ | 73-Q set; citation 0.992, keyword-recall 0.985, refusal 1.0, injection 1.0; multi-hop weakest (recall 0.917); $0.03 total, p50 2.2&nbsp;s |
+
+**Ablation (retrieval only, same 73-Q corpus, real Bedrock embeddings).** Hybrid search is the setting that moves the needle: recall@k **0.87 → 0.99** and hit@k **0.90 → 1.0** versus semantic-only, for ~360&nbsp;ms extra latency. Chunk size (500/1000/1500) and the relevance threshold around 0.35 change little, which confirms the current defaults rather than tuning to the test set. Full sweep in `evals/reports/ablation.md`.
 
 ## How hybrid search works
 
@@ -298,4 +339,9 @@ to stay on the free tier.
 * Scanned PDFs have no text layer and are marked FAILED; add Amazon Textract for OCR.
 * No response streaming (API Gateway HTTP API + Lambda buffer responses).
 * DOCX tables are appended after body text rather than kept in place.
+* No Bedrock Guardrail is attached, so nothing filters PII or unsafe topics on the way in or out.
+* Thumbs-up/down feedback is recorded in LangSmith but is not yet fed back into the golden set.
+* Retrieval metrics for the PDF are page-level, not section-level, because PDF text extraction
+  loses the heading structure. Fixing that needs heading detection in the loader.
+* The reranker is wired behind `ENABLE_RERANK` and has never been run against a real model.
 * Dependency ranges are not pinned to exact versions; run `pip freeze > requirements.lock` before a real release.

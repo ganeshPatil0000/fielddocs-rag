@@ -61,6 +61,7 @@ def _chat_model(settings: Settings, model_id: str, max_tokens: int) -> BaseChatM
             max_retries=3,
         )
 
+    from botocore.exceptions import ClientError
     from langchain_aws import ChatBedrockConverse
 
     kwargs: dict[str, Any] = {
@@ -76,7 +77,15 @@ def _chat_model(settings: Settings, model_id: str, max_tokens: int) -> BaseChatM
             "guardrailVersion": settings.bedrock_guardrail_version,
             "trace": "enabled",
         }
-    return ChatBedrockConverse(**kwargs)
+    model = ChatBedrockConverse(**kwargs)
+    # Nova can return a transient ModelErrorException ("unexpected error ... try
+    # again") that botocore's retry mode does not classify as retryable, so retry
+    # at the call level with exponential backoff.
+    return model.with_retry(
+        retry_if_exception_type=(ClientError,),
+        stop_after_attempt=4,
+        wait_exponential_jitter=True,
+    )
 
 
 @lru_cache

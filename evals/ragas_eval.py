@@ -36,6 +36,7 @@ import json
 import math
 import sys
 import time
+import uuid
 import warnings
 from pathlib import Path
 from typing import Any
@@ -93,7 +94,14 @@ def collect(
             if limit is not None and len(records) >= limit:
                 break
             recorder.last = []
-            out = service.answer(item["question"], user="ragas-eval")
+            # Follow-ups only make sense after their earlier turns, so replay
+            # those in one session before asking the question being scored.
+            history = item.get("history", [])
+            session_id = uuid.uuid4().hex[:16] if history else None
+            for earlier in history:
+                service.answer(earlier, user="ragas-eval", session_id=session_id)
+            recorder.last = []
+            out = service.answer(item["question"], user="ragas-eval", session_id=session_id)
             # A cached answer skips retrieval; fetch the contexts it was built from.
             chunks = recorder.last if not out.cached else recorder.inner.retrieve(item["question"])
             records.append(
